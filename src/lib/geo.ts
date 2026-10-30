@@ -53,7 +53,7 @@ export function orderByProximity<T extends { lat: number | null; lng: number | n
         best = i;
       }
     });
-    const [next] = remaining.splice(best, 1);
+    const next = remaining.splice(best, 1)[0]!;
     result.push(next);
     current = { lat: next.lat!, lng: next.lng! };
   }

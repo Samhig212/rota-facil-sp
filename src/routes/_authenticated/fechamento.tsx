@@ -57,12 +57,12 @@ function FechamentoPage() {
   async function fechar() {
     if (!route) return;
     const kmF = Number(kmFinal);
-    if (!kmFinal || Number.isNaN(kmF)) return toast.error("Informe o KM final do hodômetro");
-    if (kmF < route.km_inicial) return toast.error(`KM final não pode ser menor que o inicial (${route.km_inicial})`);
+    if (!kmFinal || Number.isNaN(kmF)) { toast.error("Informe o KM final do hodômetro"); return; }
+    if (kmF < route.km_inicial) { toast.error(`KM final não pode ser menor que o inicial (${route.km_inicial})`); return; }
     const pend = stops.filter((s) => !get(s.id).status);
-    if (pend.length) return toast.error(`Dê baixa em todas as notas (${pend.length} sem baixa)`);
+    if (pend.length) { toast.error(`Dê baixa em todas as notas (${pend.length} sem baixa)`); return; }
     const semMotivo = stops.find((s) => get(s.id).status === "devolvida" && !get(s.id).motivo);
-    if (semMotivo) return toast.error(`Informe o motivo da devolução da NF ${semMotivo.numero}`);
+    if (semMotivo) { toast.error(`Informe o motivo da devolução da NF ${semMotivo.numero}`); return; }
     setSaving(true);
     try {
       const results = await Promise.all(

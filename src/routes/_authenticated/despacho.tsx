@@ -65,7 +65,9 @@ function DespachoPage() {
       const n = [...o];
       const j = idx + dir;
       if (j < 0 || j >= n.length) return o;
-      [n[idx], n[j]] = [n[j], n[idx]];
+      const a = n[idx]!;
+      n[idx] = n[j]!;
+      n[j] = a;
       return n;
     });
   }
@@ -84,8 +86,8 @@ function DespachoPage() {
   const km = routeDistanceKm(stops);
 
   async function despachar() {
-    if (!vehicleId || !driverId) return toast.error("Selecione veículo e motorista");
-    if (!order.length) return toast.error("Selecione ao menos uma nota");
+    if (!vehicleId || !driverId) { toast.error("Selecione veículo e motorista"); return; }
+    if (!order.length) { toast.error("Selecione ao menos uma nota"); return; }
     setSaving(true);
     try {
       const { data: route, error } = await supabase
