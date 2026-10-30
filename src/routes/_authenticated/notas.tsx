@@ -42,7 +42,7 @@ function NotasPage() {
     setBusyCep(true);
     try {
       const info = await lookupCep(f.cep);
-      if (!info) return toast.error("CEP não encontrado");
+      if (!info) { toast.error("CEP não encontrado"); return; }
       setF((p) => ({ ...p, cep: formatCep(info.cep), logradouro: info.logradouro, bairro: info.bairro, cidade: info.cidade }));
     } finally {
       setBusyCep(false);
@@ -52,8 +52,8 @@ function NotasPage() {
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     const chave = f.chave.replace(/\D/g, "");
-    if (chave && chave.length !== 44) return toast.error("A chave de acesso da NF-e deve ter 44 dígitos");
-    if (normalizeCep(f.cep).length !== 8) return toast.error("Informe um CEP válido");
+    if (chave && chave.length !== 44) { toast.error("A chave de acesso da NF-e deve ter 44 dígitos"); return; }
+    if (normalizeCep(f.cep).length !== 8) { toast.error("Informe um CEP válido"); return; }
     setSaving(true);
     try {
       const coords = await geocode({
@@ -78,7 +78,7 @@ function NotasPage() {
 
   async function excluir(id: string) {
     const { error } = await supabase.from("invoices").delete().eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: ["invoices"] });
   }
 
