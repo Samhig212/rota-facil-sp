@@ -14,7 +14,185 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      drivers: {
+        Row: {
+          ativo: boolean
+          cnh: string
+          created_at: string
+          id: string
+          nome: string
+          telefone: string
+        }
+        Insert: {
+          ativo?: boolean
+          cnh?: string
+          created_at?: string
+          id?: string
+          nome: string
+          telefone?: string
+        }
+        Update: {
+          ativo?: boolean
+          cnh?: string
+          created_at?: string
+          id?: string
+          nome?: string
+          telefone?: string
+        }
+        Relationships: []
+      }
+      invoices: {
+        Row: {
+          bairro: string
+          cep: string
+          chave: string
+          cidade: string
+          created_at: string
+          destinatario: string
+          id: string
+          lat: number | null
+          lng: number | null
+          logradouro: string
+          motivo_devolucao: string | null
+          numero: string
+          numero_endereco: string
+          ordem: number | null
+          route_id: string | null
+          serie: string
+          status: string
+          valor: number
+          volumes: number
+        }
+        Insert: {
+          bairro?: string
+          cep: string
+          chave?: string
+          cidade?: string
+          created_at?: string
+          destinatario: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          logradouro?: string
+          motivo_devolucao?: string | null
+          numero: string
+          numero_endereco?: string
+          ordem?: number | null
+          route_id?: string | null
+          serie?: string
+          status?: string
+          valor?: number
+          volumes?: number
+        }
+        Update: {
+          bairro?: string
+          cep?: string
+          chave?: string
+          cidade?: string
+          created_at?: string
+          destinatario?: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          logradouro?: string
+          motivo_devolucao?: string | null
+          numero?: string
+          numero_endereco?: string
+          ordem?: number | null
+          route_id?: string | null
+          serie?: string
+          status?: string
+          valor?: number
+          volumes?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "routes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      routes: {
+        Row: {
+          closed_at: string | null
+          created_at: string
+          data: string
+          driver_id: string
+          id: string
+          km_final: number | null
+          km_inicial: number
+          status: string
+          vehicle_id: string
+        }
+        Insert: {
+          closed_at?: string | null
+          created_at?: string
+          data?: string
+          driver_id: string
+          id?: string
+          km_final?: number | null
+          km_inicial?: number
+          status?: string
+          vehicle_id: string
+        }
+        Update: {
+          closed_at?: string | null
+          created_at?: string
+          data?: string
+          driver_id?: string
+          id?: string
+          km_final?: number | null
+          km_inicial?: number
+          status?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "routes_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "routes_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vehicles: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          km_atual: number
+          modelo: string
+          placa: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          km_atual?: number
+          modelo?: string
+          placa: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          km_atual?: number
+          modelo?: string
+          placa?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
