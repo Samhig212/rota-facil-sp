@@ -17,7 +17,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { PageHeader, StatusBadge } from "@/components/fleet-ui";
 import { NfeBatchImportModal } from "@/components/NfeBatchImportModal";
 import { NfeXmlDropzone } from "@/components/NfeXmlDropzone";
@@ -185,7 +185,7 @@ function NotasPage() {
         bairro: f.bairro,
         cidade: f.cidade,
       });
-      const { error } = await supabase.from("invoices").insert({
+      await api.invoices.create({
         numero: f.numero,
         serie: f.serie,
         chave,
@@ -200,7 +200,7 @@ function NotasPage() {
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
       });
-      if (error) throw error;
+      // saved
       toast.success(
         coords
           ? `NF ${f.numero} lançada e localizada no mapa`
@@ -216,7 +216,7 @@ function NotasPage() {
   }
 
   async function excluir(id: string) {
-    const { error } = await supabase.from("invoices").delete().eq("id", id);
+    try { await api.invoices.delete(id); } catch (e: any) { toast.error(e.message); return; }
     if (error) {
       toast.error(error.message);
       return;

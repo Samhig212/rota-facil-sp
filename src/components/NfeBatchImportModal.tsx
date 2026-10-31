@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, FileText, Loader2, Trash2, Upload } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -72,7 +72,7 @@ export function NfeBatchImportModal({
         }
 
         const chave = nfe.chave.replace(/\D/g, "");
-        const { error } = await supabase.from("invoices").insert({
+        await api.invoices.create({
           numero: nfe.numero,
           serie: nfe.serie || "1",
           chave: chave || "",

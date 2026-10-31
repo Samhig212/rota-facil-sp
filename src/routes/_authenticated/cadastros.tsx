@@ -19,7 +19,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { PageHeader, Plate } from "@/components/fleet-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,13 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { driversQuery, vehiclesQuery, type Driver } from "@/lib/fleet";
 import {
   getDriverProfile,
@@ -100,15 +93,16 @@ function CadastrosPage() {
   const editFotoInputRef = useRef<HTMLInputElement>(null);
   const editCnhInputRef = useRef<HTMLInputElement>(null);
 
-  async function run(p: PromiseLike<{ error: { message: string } | null }>, key: string, ok: string) {
-    const { error } = await p;
-    if (error) {
-      toast.error(error.message);
+  async function runOp(action: () => Promise<any>, key: string, okMsg: string) {
+    try {
+      await action();
+      toast.success(okMsg);
+      qc.invalidateQueries({ queryKey: [key] });
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || "Erro na operação");
       return false;
     }
-    toast.success(ok);
-    qc.invalidateQueries({ queryKey: [key] });
-    return true;
   }
 
   function handleFileToDataUrl(file: File, callback: (url: string) => void) {
@@ -133,17 +127,15 @@ function CadastrosPage() {
     setSubmittingDriver(true);
 
     try {
-      const { data: newDriver, error } = await supabase
-        .from("drivers")
-        .insert({
-          nome: d.nome.trim(),
-          cnh: d.cnh.trim(),
-          telefone: d.telefone.trim(),
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
+      const newDriver = await api.drivers.create({
+        nome: d.nome.trim(),
+        cnh: d.cnh.trim(),
+        telefone: d.telefone.trim(),
+        foto: fotoPreview || undefined,
+        cnh_foto: cnhPreview || undefined,
+        cnh_categoria: d.cnhCategoria,
+        cnh_validade: d.cnhValidade || undefined,
+      });
 
       // Salva anexo de foto e CNH no perfil associado
       const targetId = newDriver?.id || d.cnh.trim() || d.nome;
@@ -167,8 +159,8 @@ function CadastrosPage() {
       setCnhPreview("");
       if (fotoInputRef.current) fotoInputRef.current.value = "";
       if (cnhInputRef.current) cnhInputRef.current.value = "";
-    } catch (err) {
-      toast.error((err as Error).message);
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao cadastrar motorista");
     } finally {
       setSubmittingDriver(false);
     }
@@ -177,24 +169,34 @@ function CadastrosPage() {
   function openEditModal(driver: Driver) {
     setEditingDriver(driver);
     const prof = getDriverProfile(driver.id) || getDriverProfile(driver.cnh);
-    setEditFoto(prof?.foto || "");
-    setEditCnhFoto(prof?.cnhFoto || "");
-    setEditCategoria(prof?.cnhCategoria || "B");
+    setEditFoto(driver.foto || prof?.foto || "");
+    setEditCnhFoto(driver.cnh_foto || prof?.cnhFoto || "");
+    setEditCategoria(driver.cnh_categoria || prof?.cnhCategoria || "B");
   }
 
-  function handleSaveEditProfile() {
+  async function handleSaveEditProfile() {
     if (!editingDriver) return;
-    saveDriverProfile(
-      editingDriver.id,
-      {
+    try {
+      await api.drivers.update(editingDriver.id, {
         foto: editFoto || undefined,
-        cnhFoto: editCnhFoto || undefined,
-        cnhCategoria: editCategoria,
-      },
-      editingDriver.cnh,
-    );
-    toast.success(`Foto e CNH de ${editingDriver.nome} atualizadas com sucesso!`);
-    setEditingDriver(null);
+        cnh_foto: editCnhFoto || undefined,
+        cnh_categoria: editCategoria,
+      });
+      saveDriverProfile(
+        editingDriver.id,
+        {
+          foto: editFoto || undefined,
+          cnhFoto: editCnhFoto || undefined,
+          cnhCategoria: editCategoria,
+        },
+        editingDriver.cnh,
+      );
+      toast.success(`Foto e CNH de ${editingDriver.nome} atualizadas com sucesso!`);
+      qc.invalidateQueries({ queryKey: ["drivers"] });
+      setEditingDriver(null);
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao atualizar dados");
+    }
   }
 
   const filteredVehicles = useMemo(() => {
@@ -217,7 +219,11 @@ function CadastrosPage() {
   }, [drivers, dSearch]);
 
   const activeDriverCnhProfile = selectedDriverForCnh
-    ? getDriverProfile(selectedDriverForCnh.id) || getDriverProfile(selectedDriverForCnh.cnh)
+    ? {
+        foto: selectedDriverForCnh.foto || (getDriverProfile(selectedDriverForCnh.id) || getDriverProfile(selectedDriverForCnh.cnh))?.foto,
+        cnhFoto: selectedDriverForCnh.cnh_foto || (getDriverProfile(selectedDriverForCnh.id) || getDriverProfile(selectedDriverForCnh.cnh))?.cnhFoto,
+        cnhCategoria: selectedDriverForCnh.cnh_categoria || (getDriverProfile(selectedDriverForCnh.id) || getDriverProfile(selectedDriverForCnh.cnh))?.cnhCategoria,
+      }
     : null;
 
   return (
@@ -261,17 +267,17 @@ function CadastrosPage() {
             className="grid grid-cols-[1.1fr_1.4fr_1fr_auto] gap-2 border-b border-border/60 p-4 bg-muted/10"
             onSubmit={async (e) => {
               e.preventDefault();
-              if (
-                await run(
-                  supabase.from("vehicles").insert({
+              const ok = await runOp(
+                () =>
+                  api.vehicles.create({
                     placa: v.placa.toUpperCase(),
                     modelo: v.modelo,
                     km_atual: Number(v.km) || 0,
                   }),
-                  "vehicles",
-                  "Veículo cadastrado com sucesso",
-                )
-              ) {
+                "vehicles",
+                "Veículo cadastrado com sucesso",
+              );
+              if (ok) {
                 setV({ placa: "", modelo: "", km: "" });
               }
             }}
@@ -332,10 +338,10 @@ function CadastrosPage() {
                       {x.ativo ? "Ativo" : "Inativo"}
                     </span>
                     <Switch
-                      checked={x.ativo}
+                      checked={Boolean(x.ativo)}
                       onCheckedChange={(c) =>
-                        run(
-                          supabase.from("vehicles").update({ ativo: c }).eq("id", x.id),
+                        runOp(
+                          () => api.vehicles.update(x.id, { ativo: c }),
                           "vehicles",
                           c ? "Veículo ativado" : "Veículo inativado",
                         )
@@ -589,8 +595,9 @@ function CadastrosPage() {
             ) : (
               filteredDrivers.map((driver) => {
                 const profile = getDriverProfile(driver.id) || getDriverProfile(driver.cnh);
-                const hasPhoto = Boolean(profile?.foto);
-                const hasCnh = Boolean(profile?.cnhFoto);
+                const photoSrc = driver.foto || profile?.foto;
+                const cnhSrc = driver.cnh_foto || profile?.cnhFoto;
+                const cat = driver.cnh_categoria || profile?.cnhCategoria;
 
                 return (
                   <div
@@ -599,9 +606,9 @@ function CadastrosPage() {
                   >
                     {/* Foto ou Monograma do Motorista */}
                     <div className="relative h-10 w-10 shrink-0 rounded-xl overflow-hidden border border-border/80 bg-muted/60 flex items-center justify-center font-bold text-xs text-foreground uppercase shadow-xs">
-                      {hasPhoto ? (
+                      {photoSrc ? (
                         <img
-                          src={profile!.foto}
+                          src={photoSrc}
                           alt={driver.nome}
                           className="h-full w-full object-cover"
                         />
@@ -613,9 +620,9 @@ function CadastrosPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-xs font-semibold text-foreground truncate">{driver.nome}</p>
-                        {profile?.cnhCategoria && (
+                        {cat && (
                           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-primary/10 text-primary border border-primary/20 font-bold">
-                            Cat. {profile.cnhCategoria}
+                            Cat. {cat}
                           </span>
                         )}
                       </div>
@@ -635,7 +642,7 @@ function CadastrosPage() {
                         size="sm"
                         variant="outline"
                         className={`h-7 px-2.5 rounded-lg text-xs gap-1 font-semibold ${
-                          hasCnh
+                          cnhSrc
                             ? "border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300"
                             : "text-muted-foreground"
                         }`}
@@ -658,10 +665,10 @@ function CadastrosPage() {
                       </Button>
 
                       <Switch
-                        checked={driver.ativo}
+                        checked={Boolean(driver.ativo)}
                         onCheckedChange={(c) =>
-                          run(
-                            supabase.from("drivers").update({ ativo: c }).eq("id", driver.id),
+                          runOp(
+                            () => api.drivers.update(driver.id, { ativo: c }),
                             "drivers",
                             c ? "Motorista ativado" : "Motorista inativado",
                           )

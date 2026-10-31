@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Loader2, MapPin, ShieldCheck, Truck } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,21 +32,17 @@ function AuthPage() {
     setLoading(true);
     try {
       if (mode === "in") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await api.auth.login(email, password);
+        window.dispatchEvent(new CustomEvent("rf:auth-change"));
         navigate({ to: "/mapa" });
       } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: window.location.origin },
-        });
-        if (error) throw error;
-        if (data.session) navigate({ to: "/mapa" });
-        else toast.success("Conta criada! Confirme pelo link enviado ao seu e-mail.");
+        await api.auth.register(email, password);
+        window.dispatchEvent(new CustomEvent("rf:auth-change"));
+        toast.success("Conta criada com sucesso!");
+        navigate({ to: "/mapa" });
       }
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error((err as Error).message || "Erro na autenticação");
     } finally {
       setLoading(false);
     }

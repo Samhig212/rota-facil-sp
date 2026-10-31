@@ -3,7 +3,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Clock, Lock, RotateCcw, Truck, Undo2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { PageHeader, Plate, StatusBadge } from "@/components/fleet-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,8 +63,6 @@ function FechamentoPage() {
   const done = stops.filter((s) => get(s.id).status).length;
   const km = route && kmFinal ? Number(kmFinal) - route.km_inicial : null;
 
-  const driverProfile = route?.driver_id ? getDriverProfile(route.driver_id) : null;
-
   async function fechar() {
     if (!route) return;
     const kmF = Number(kmFinal);
@@ -88,28 +86,19 @@ function FechamentoPage() {
     }
     setSaving(true);
     try {
-      const results = await Promise.all(
+      await Promise.all(
         stops.map((s) => {
           const b = get(s.id);
           const motivo = b.status === "devolvida" ? [b.motivo, b.obs].filter(Boolean).join(" — ") : null;
-          return supabase
-            .from("invoices")
-            .update({ status: b.status!, motivo_devolucao: motivo })
-            .eq("id", s.id);
+          return api.invoices.update(s.id, {
+            status: b.status,
+            motivo_devolucao: motivo,
+          });
         }),
       );
-      const err = results.find((r) => r.error)?.error;
-      if (err) throw err;
-      const r1 = await supabase
-        .from("routes")
-        .update({ status: "fechada", km_final: kmF, closed_at: new Date().toISOString() })
-        .eq("id", route.id);
-      if (r1.error) throw r1.error;
-      const r2 = await supabase
-        .from("vehicles")
-        .update({ km_atual: kmF })
-        .eq("id", route.vehicle_id);
-      if (r2.error) throw r2.error;
+
+      await api.routes.close(route.id, kmF);
+
       toast.success("Turno fechado com sucesso!");
       setRouteId("");
       setKmFinal("");

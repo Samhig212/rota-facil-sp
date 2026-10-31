@@ -16,7 +16,7 @@ import {
   UserCheck,
   Zap,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { LazyMap, type MapStop } from "@/components/LazyMap";
 import { PageHeader } from "@/components/fleet-ui";
 import { Button } from "@/components/ui/button";
@@ -78,7 +78,15 @@ function DespachoPage() {
 
   const selectedDriver = useMemo(() => drivers.find((d) => d.id === driverId), [drivers, driverId]);
   const selectedDriverProfile = useMemo(
-    () => (selectedDriver ? getDriverProfile(selectedDriver.id) || getDriverProfile(selectedDriver.cnh) : null),
+    () => {
+      if (!selectedDriver) return null;
+      const prof = getDriverProfile(selectedDriver.id) || getDriverProfile(selectedDriver.cnh);
+      return {
+        foto: selectedDriver.foto || prof?.foto,
+        cnhFoto: selectedDriver.cnh_foto || prof?.cnhFoto,
+        cnhCategoria: selectedDriver.cnh_categoria || prof?.cnhCategoria,
+      };
+    },
     [selectedDriver],
   );
 
@@ -170,22 +178,22 @@ function DespachoPage() {
     }
     setSaving(true);
     try {
-      const { data: route, error } = await supabase
-        .from("routes")
-        .insert({ vehicle_id: vehicleId, driver_id: driverId, km_inicial: Number(kmInicial) || 0 })
-        .select()
-        .single();
-      if (error) throw error;
-      const results = await Promise.all(
+      const route = await api.routes.create({
+        vehicle_id: vehicleId,
+        driver_id: driverId,
+        km_inicial: Number(kmInicial) || 0,
+      });
+
+      await Promise.all(
         order.map((inv, idx) =>
-          supabase
-            .from("invoices")
-            .update({ status: "em_rota", route_id: route.id, ordem: idx + 1 })
-            .eq("id", inv.id),
+          api.invoices.update(inv.id, {
+            status: "em_rota",
+            route_id: route.id,
+            ordem: idx + 1,
+          }),
         ),
       );
-      const err = results.find((r) => r.error)?.error;
-      if (err) throw err;
+
       toast.success(`Rota estratégica despachada com ${order.length} paradas sequenciadas`);
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["invoices"] }),

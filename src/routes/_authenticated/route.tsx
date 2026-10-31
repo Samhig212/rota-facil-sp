@@ -9,16 +9,20 @@ import {
   Truck,
   Users,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) throw redirect({ to: "/auth" });
-    return { user: data.user };
+    try {
+      const user = await api.auth.me();
+      if (!user) throw redirect({ to: "/auth" });
+      return { user };
+    } catch {
+      throw redirect({ to: "/auth" });
+    }
   },
   component: Shell,
 });
@@ -53,8 +57,9 @@ function Shell() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            onClick={async () => {
-              await supabase.auth.signOut();
+            onClick={() => {
+              api.auth.logout();
+              window.dispatchEvent(new CustomEvent("rf:auth-change"));
               navigate({ to: "/auth" });
             }}
             aria-label="Sair"
@@ -131,8 +136,9 @@ function Shell() {
               className="h-8 w-8 shrink-0 text-sidebar-foreground/80 hover:bg-destructive/20 hover:text-destructive transition-colors duration-200 rounded-lg"
               title="Encerrar sessão"
               aria-label="Sair da conta"
-              onClick={async () => {
-                await supabase.auth.signOut();
+              onClick={() => {
+                api.auth.logout();
+                window.dispatchEvent(new CustomEvent("rf:auth-change"));
                 navigate({ to: "/auth" });
               }}
             >
