@@ -1,13 +1,25 @@
 export type LatLng = { lat: number; lng: number };
 
-/** Base de saída da frota (CD) — usada como ponto inicial da roteirização. */
-export const DEPOT: LatLng & { nome: string } = {
-  nome: "CD Barra Funda",
-  lat: -23.5256,
-  lng: -46.6668,
+/** Base de saída da frota (CD / Ponto de partida) — Rua Professor Oswaldo Quirino Simões, 142 */
+export const DEPOT: LatLng & {
+  nome: string;
+  endereco: string;
+  bairro: string;
+  cidade: string;
+  cep: string;
+  numero: string;
+} = {
+  nome: "Base Operacional - R. Prof. Oswaldo Quirino Simões, 142",
+  endereco: "Rua Professor Oswaldo Quirino Simões, 142 - Socorro, São Paulo - SP",
+  bairro: "Socorro / Vila Califórnia",
+  cidade: "São Paulo - SP",
+  cep: "04775-010",
+  numero: "142",
+  lat: -23.68213,
+  lng: -46.70174,
 };
 
-export const SP_CENTER: LatLng = { lat: -23.5505, lng: -46.6333 };
+export const SP_CENTER: LatLng = { lat: -23.68213, lng: -46.70174 };
 
 export function normalizeCep(cep: string) {
   return cep.replace(/\D/g, "").slice(0, 8);
@@ -31,7 +43,8 @@ export function haversineKm(a: LatLng, b: LatLng) {
 }
 
 /**
- * Ordena paradas por proximidade (vizinho mais próximo) a partir de `start`.
+ * Ordena paradas por rota estratégica (vizinho mais próximo sucessivo) a partir de `start` (Base).
+ * A 1ª parada é a mais próxima da Base; a 2ª é a mais próxima da 1ª; e assim por diante.
  * Paradas sem coordenadas vão para o final, na ordem original.
  */
 export function orderByProximity<T extends { lat: number | null; lng: number | null }>(
@@ -43,6 +56,7 @@ export function orderByProximity<T extends { lat: number | null; lng: number | n
   const result: T[] = [];
   let current: LatLng = start;
   const remaining = [...withCoords];
+
   while (remaining.length) {
     let best = 0;
     let bestD = Infinity;
@@ -58,6 +72,59 @@ export function orderByProximity<T extends { lat: number | null; lng: number | n
     current = { lat: next.lat!, lng: next.lng! };
   }
   return [...result, ...without];
+}
+
+export type RouteLeg = {
+  legIndex: number;
+  fromName: string;
+  toName: string;
+  distanceKm: number;
+  cumulativeKm: number;
+  estimatedMinutes: number;
+};
+
+/**
+ * Calcula os trechos estratégicos (perna por perna) de uma rota sequencial.
+ */
+export function calculateStrategicLegs<
+  T extends {
+    lat: number | null;
+    lng: number | null;
+    destinatario?: string;
+    numero?: string;
+  },
+>(
+  stops: T[],
+  start: LatLng & { nome?: string } = DEPOT,
+): RouteLeg[] {
+  const validStops = stops.filter((s) => s.lat != null && s.lng != null);
+  let cur: LatLng = { lat: start.lat, lng: start.lng };
+  let curName = start.nome ?? "Base Operacional";
+  let cumulative = 0;
+
+  return validStops.map((stop, idx) => {
+    const nextLoc = { lat: stop.lat!, lng: stop.lng! };
+    const dist = haversineKm(cur, nextLoc);
+    cumulative += dist;
+    // Estimativa de tráfego urbano em SP: velocidade média operacional ~26 km/h + 5 min de desembarque
+    const estMin = Math.round((dist / 26) * 60) + 5;
+    const toName = stop.numero
+      ? `NF ${stop.numero} (${stop.destinatario || "Entrega"})`
+      : `Parada #${idx + 1}`;
+
+    const leg: RouteLeg = {
+      legIndex: idx + 1,
+      fromName: curName,
+      toName,
+      distanceKm: dist,
+      cumulativeKm: cumulative,
+      estimatedMinutes: estMin,
+    };
+
+    cur = nextLoc;
+    curName = toName;
+    return leg;
+  });
 }
 
 export function routeDistanceKm(points: LatLng[], start: LatLng = DEPOT) {

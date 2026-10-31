@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { DEPOT, SP_CENTER } from "@/lib/geo";
+import { DEPOT, haversineKm, SP_CENTER } from "@/lib/geo";
 
 export type MapStop = {
   id: string;
@@ -11,6 +11,7 @@ export type MapStop = {
   label: string;
   title: string;
   subtitle?: string;
+  distFromPrev?: number;
 };
 
 export default function DeliveryMap({
@@ -31,7 +32,7 @@ export default function DeliveryMap({
 
   useEffect(() => {
     if (!el.current || map.current) return;
-    map.current = L.map(el.current, { zoomControl: true }).setView([SP_CENTER.lat, SP_CENTER.lng], 11);
+    map.current = L.map(el.current, { zoomControl: true }).setView([DEPOT.lat, DEPOT.lng], 12);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap",
@@ -49,12 +50,34 @@ export default function DeliveryMap({
     if (!m || !g) return;
     g.clearLayers();
     markers.current = {};
+
+    // Marcador da Base Operacional (Ponto de Partida)
     L.marker([DEPOT.lat, DEPOT.lng], {
-      icon: L.divIcon({ className: "", html: `<div class="depot-pin">CD</div>`, iconSize: [32, 32], iconAnchor: [16, 16] }),
+      icon: L.divIcon({
+        className: "",
+        html: `<div class="depot-pin"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#38bdf8;box-shadow:0 0 6px #38bdf8;margin-right:4px;"></span>BASE CD</div>`,
+        iconSize: [84, 32],
+        iconAnchor: [42, 16],
+      }),
     })
-      .bindPopup(`<b>${DEPOT.nome}</b><br/>Base de saída`)
+      .bindPopup(
+        `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.4;">
+          <b style="font-size:13px;color:#1e3a8a;">${DEPOT.nome}</b><br/>
+          <span style="color:#64748b;">${DEPOT.endereco}</span><br/>
+          <div style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#2563eb;color:#fff;border-radius:6px;font-size:10px;font-weight:bold;letter-spacing:0.5px;">
+            PONTO INICIAL DA ROTA
+          </div>
+        </div>`,
+      )
       .addTo(g);
-    for (const s of stops) {
+
+    let prevLoc = { lat: DEPOT.lat, lng: DEPOT.lng };
+
+    for (let i = 0; i < stops.length; i++) {
+      const s = stops[i];
+      const distFromPrev = s.distFromPrev ?? haversineKm(prevLoc, { lat: s.lat, lng: s.lng });
+      prevLoc = { lat: s.lat, lng: s.lng };
+
       const mk = L.marker([s.lat, s.lng], {
         icon: L.divIcon({
           className: "",
@@ -64,20 +87,57 @@ export default function DeliveryMap({
           popupAnchor: [10, -26],
         }),
       })
-        .bindPopup(`<b>${s.title}</b>${s.subtitle ? `<br/>${s.subtitle}` : ""}`)
+        .bindPopup(
+          `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;min-width:180px;">
+            <b style="font-size:13px;color:#0f172a;">${s.title}</b>
+            ${s.subtitle ? `<br/><span style="color:#64748b;font-size:11px;">${s.subtitle}</span>` : ""}
+            ${
+              showRoute
+                ? `<div style="margin-top:8px;padding:4px 8px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;font-size:11px;font-weight:600;">
+                    🎯 Trecho Estratégico: +${distFromPrev.toFixed(1)} km (Mais próxima)
+                   </div>`
+                : ""
+            }
+          </div>`,
+        )
         .addTo(g);
+
       if (onSelect) mk.on("click", () => onSelect(s.id));
       markers.current[s.id] = mk;
     }
+
     if (showRoute && stops.length) {
-      L.polyline(
-        [[DEPOT.lat, DEPOT.lng], ...stops.map((s) => [s.lat, s.lng] as [number, number])],
-        { color: "oklch(0.21 0.014 260)", weight: 3, dashArray: "6 6" },
-      ).addTo(g);
+      const latlngs: [number, number][] = [
+        [DEPOT.lat, DEPOT.lng],
+        ...stops.map((s) => [s.lat, s.lng] as [number, number]),
+      ];
+
+      // Linha de reflexo / halo externo
+      L.polyline(latlngs, {
+        color: "#60a5fa",
+        weight: 7,
+        opacity: 0.35,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(g);
+
+      // Linha principal corporativa da rota estratégica
+      L.polyline(latlngs, {
+        color: "#2563eb",
+        weight: 3.5,
+        opacity: 0.95,
+        lineCap: "round",
+        lineJoin: "round",
+        dashArray: "8 4",
+      }).addTo(g);
     }
+
     if (stops.length) {
-      const b = L.latLngBounds([[DEPOT.lat, DEPOT.lng], ...stops.map((s) => [s.lat, s.lng] as [number, number])]);
-      m.fitBounds(b, { padding: [40, 40], maxZoom: 15 });
+      const b = L.latLngBounds([
+        [DEPOT.lat, DEPOT.lng],
+        ...stops.map((s) => [s.lat, s.lng] as [number, number]),
+      ]);
+      m.fitBounds(b, { padding: [45, 45], maxZoom: 15 });
     }
   }, [stops, showRoute, onSelect]);
 

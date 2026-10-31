@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { invoicesQuery, MOTIVOS_DEVOLUCAO, routesQuery } from "@/lib/fleet";
+import { getDriverProfile } from "@/lib/driver-profiles";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/fechamento")({
@@ -61,6 +62,8 @@ function FechamentoPage() {
 
   const done = stops.filter((s) => get(s.id).status).length;
   const km = route && kmFinal ? Number(kmFinal) - route.km_inicial : null;
+
+  const driverProfile = route?.driver_id ? getDriverProfile(route.driver_id) : null;
 
   async function fechar() {
     if (!route) return;
@@ -122,8 +125,8 @@ function FechamentoPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background animate-in fade-in-50 duration-300">
       <PageHeader
-        title="Fechamento de Turno"
-        subtitle="Registro de hodômetro final e baixa de mercadorias entregues ou devolvidas"
+        title="Fechamento de Turno Operacional"
+        subtitle="Registro de hodômetro final e baixa oficial das entregas realizadas ou devolvidas"
       />
 
       <div className="grid flex-1 gap-6 p-6 sm:p-8 xl:grid-cols-[1fr_360px]">
@@ -144,35 +147,45 @@ function FechamentoPage() {
                   Selecione a Rota para Baixa ({abertas.length} em trânsito)
                 </span>
                 <div className="flex flex-wrap gap-2.5">
-                  {abertas.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => {
-                        setRouteId(r.id);
-                        setBaixas({});
-                        setKmFinal("");
-                      }}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-xl border p-3 text-xs font-semibold transition-all duration-200 active:scale-95 shadow-xs",
-                        r.id === routeId
-                          ? "border-primary bg-primary/10 ring-2 ring-primary text-foreground font-bold"
-                          : "border-border/70 bg-card hover:bg-muted/50 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <Plate>{r.vehicles?.placa}</Plate>
-                      <span className="text-foreground">{r.drivers?.nome}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        KM {r.km_inicial}
-                      </span>
-                    </button>
-                  ))}
+                  {abertas.map((r) => {
+                    const prof = getDriverProfile(r.driver_id);
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => {
+                          setRouteId(r.id);
+                          setBaixas({});
+                          setKmFinal("");
+                        }}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl border p-2.5 text-xs font-semibold transition-all duration-200 active:scale-95 shadow-xs",
+                          r.id === routeId
+                            ? "border-primary bg-primary/10 ring-2 ring-primary text-foreground font-bold"
+                            : "border-border/70 bg-card hover:bg-muted/50 text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <Plate>{r.vehicles?.placa}</Plate>
+                        {prof?.foto ? (
+                          <img
+                            src={prof.foto}
+                            alt={r.drivers?.nome}
+                            className="h-5 w-5 rounded-full object-cover shrink-0 border"
+                          />
+                        ) : null}
+                        <span className="text-foreground">{r.drivers?.nome}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          KM {r.km_inicial}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {route && (
                 <div className="rounded-2xl border border-border/70 bg-card/90 shadow-sm backdrop-blur-xs overflow-hidden">
-                  {/* Bloco de Apontamento de KM */}
+                  {/* Bloco de Apontamento de KM e Condutor */}
                   <div className="grid gap-4 border-b border-border/60 p-5 sm:grid-cols-3 bg-muted/20">
                     <div className="space-y-1">
                       <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -180,6 +193,9 @@ function FechamentoPage() {
                       </p>
                       <p className="font-mono text-2xl font-black text-foreground">
                         {route.km_inicial}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {route.drivers?.nome} · {route.vehicles?.modelo}
                       </p>
                     </div>
 
@@ -209,6 +225,11 @@ function FechamentoPage() {
                       >
                         {km != null ? `${km} km` : "—"}
                       </p>
+                      {km != null && km > 0 && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                          Hodômetro válido
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -220,7 +241,7 @@ function FechamentoPage() {
                         <li key={s.id} className="p-4 sm:p-5 transition-colors hover:bg-muted/20">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-sidebar font-mono text-xs font-black text-sidebar-primary shadow-xs">
+                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 font-mono text-xs font-black text-white shadow-xs">
                                 {s.ordem}
                               </span>
                               <div className="min-w-0 flex-1 text-xs">
@@ -311,7 +332,7 @@ function FechamentoPage() {
                     <Button
                       onClick={fechar}
                       disabled={saving || done < stops.length || !kmFinal}
-                      className="rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold shadow-md shadow-amber-500/20 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 gap-2"
+                      className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold shadow-md shadow-blue-500/25 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 gap-2"
                     >
                       <Lock size={16} /> Encerrar Turno Oficial
                     </Button>

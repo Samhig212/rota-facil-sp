@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Truck } from "lucide-react";
+import { Loader2, MapPin, ShieldCheck, Truck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -60,9 +60,9 @@ function AuthPage() {
       </div>
 
       {/* Painel lateral visual */}
-      <div className="relative hidden flex-col justify-between bg-sidebar p-12 text-sidebar-foreground lg:flex overflow-hidden">
+      <div className="relative hidden flex-col justify-between bg-sidebar p-12 text-sidebar-foreground lg:flex overflow-hidden border-r border-sidebar-border/60">
         <div className="flex items-center gap-2.5 text-2xl font-black text-sidebar-accent-foreground">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-stone-950 shadow-md shadow-amber-500/20">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25">
             <Truck size={22} />
           </div>
           <span>
@@ -70,33 +70,35 @@ function AuthPage() {
           </span>
         </div>
 
-        <div className="space-y-4 my-auto">
-          <span className="inline-flex items-center rounded-full bg-sidebar-primary/15 border border-sidebar-primary/25 px-3 py-1 text-xs font-bold text-sidebar-primary tracking-wide uppercase">
-            Logística Inteligente em São Paulo
-          </span>
-          <h1 className="text-5xl font-black leading-tight tracking-tight text-sidebar-accent-foreground xl:text-6xl">
+        <div className="space-y-4 my-auto max-w-lg">
+          <div className="inline-flex items-center gap-2 rounded-full bg-sidebar-primary/15 border border-sidebar-primary/25 px-3.5 py-1 text-xs font-bold text-sidebar-primary tracking-wide uppercase">
+            <ShieldCheck size={14} />
+            <span>Logística & Roteirização Estratégica SP</span>
+          </div>
+          <h1 className="text-4xl font-black leading-tight tracking-tight text-sidebar-accent-foreground xl:text-5xl">
             Carga certa,<br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400">
-              rota curta,
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-sky-300 to-indigo-300">
+              rota estratégica inteligente,
             </span><br />
-            turno fechado.
+            turno 100% fechado.
           </h1>
-          <p className="max-w-md text-sm text-sidebar-foreground/80 leading-relaxed font-normal">
-            Lance notas fiscais via XML em lote, despache por proximidade geográfica e feche o dia com apontamento de KM e baixa de cada parada.
+          <p className="text-sm text-sidebar-foreground/80 leading-relaxed font-normal">
+            Importe NF-e via XML em segundos, otimize a sequência de entrega de nota a nota mais próxima e monitore motoristas, CNHs e ocorrências em tempo real.
           </p>
         </div>
 
         <div className="space-y-3">
-          <div className="hazard-stripe h-2.5 w-full rounded-full shadow-xs" />
-          <p className="text-[11px] text-sidebar-foreground/50 font-mono">
-            Centro de Distribuição Barra Funda · São Paulo - SP
-          </p>
+          <div className="h-1 w-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 opacity-80" />
+          <div className="flex items-center gap-2 text-[11px] text-sidebar-foreground/60 font-mono">
+            <MapPin size={13} className="text-sidebar-primary shrink-0" />
+            <span>Base Operacional: Rua Professor Oswaldo Quirino Simões, 142 · Socorro / SP</span>
+          </div>
         </div>
       </div>
 
       {/* Área do formulário */}
       <div className="flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-sm space-y-6 rounded-2xl border border-border/70 bg-card/80 p-8 shadow-sm backdrop-blur-md">
+        <div className="w-full max-w-sm space-y-6 rounded-2xl border border-border/70 bg-card/90 p-8 shadow-sm backdrop-blur-md">
           <div className="space-y-1 text-center sm:text-left">
             <h2 className="text-2xl font-black tracking-tight text-foreground">
               {mode === "in" ? "Acessar Sistema" : "Criar Nova Conta"}
@@ -141,7 +143,7 @@ function AuthPage() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold shadow-md shadow-amber-500/20 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 py-2.5"
+              className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold shadow-md shadow-blue-500/25 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 py-2.5"
             >
               {loading && <Loader2 className="animate-spin mr-2" />}
               {mode === "in" ? "Entrar na Operação" : "Cadastrar Operador"}

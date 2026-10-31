@@ -7,28 +7,28 @@ const STATUS_CONFIG: Record<
   { bg: string; dot: string; text: string; border: string }
 > = {
   pendente: {
-    bg: "bg-muted/80",
-    text: "text-muted-foreground",
-    dot: "bg-muted-foreground",
-    border: "border-border/70",
+    bg: "bg-slate-100 dark:bg-slate-800/80",
+    text: "text-slate-700 dark:text-slate-300",
+    dot: "bg-slate-500",
+    border: "border-slate-300 dark:border-slate-700",
   },
   em_rota: {
-    bg: "bg-amber-500/15 dark:bg-amber-400/15",
-    text: "text-amber-700 dark:text-amber-300",
-    dot: "bg-amber-500 animate-pulse",
-    border: "border-amber-500/30",
+    bg: "bg-blue-50 dark:bg-blue-950/60",
+    text: "text-blue-700 dark:text-blue-300",
+    dot: "bg-blue-600 animate-pulse",
+    border: "border-blue-300 dark:border-blue-700/60",
   },
   entregue: {
-    bg: "bg-emerald-500/15 dark:bg-emerald-400/15",
+    bg: "bg-emerald-50 dark:bg-emerald-950/60",
     text: "text-emerald-700 dark:text-emerald-300",
-    dot: "bg-emerald-500",
-    border: "border-emerald-500/30",
+    dot: "bg-emerald-600",
+    border: "border-emerald-300 dark:border-emerald-700/60",
   },
   devolvida: {
-    bg: "bg-rose-500/15 dark:bg-rose-400/15",
+    bg: "bg-rose-50 dark:bg-rose-950/60",
     text: "text-rose-700 dark:text-rose-300",
-    dot: "bg-rose-500",
-    border: "border-rose-500/30",
+    dot: "bg-rose-600",
+    border: "border-rose-300 dark:border-rose-700/60",
   },
 };
 
@@ -69,7 +69,7 @@ export function PageHeader({
   badge?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-border/60 bg-card/80 px-6 py-4 backdrop-blur-md transition-all duration-200 supports-[backdrop-filter]:bg-card/75 sm:px-8">
+    <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-border/60 bg-card/85 px-6 py-4 backdrop-blur-md transition-all duration-200 sm:px-8">
       <div className="space-y-0.5">
         <div className="flex items-center gap-2.5">
           <h1 className="text-2xl font-black tracking-tight text-foreground sm:text-3xl">

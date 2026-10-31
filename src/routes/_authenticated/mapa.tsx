@@ -1,21 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
-import { MapPin, Search } from "lucide-react";
+import { MapPin, Navigation, Route as RouteIcon, Search, Sparkles } from "lucide-react";
 import { LazyMap, type MapStop } from "@/components/LazyMap";
 import { PageHeader, StatusBadge } from "@/components/fleet-ui";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { invoicesQuery, STATUS_LABEL, type InvoiceStatus } from "@/lib/fleet";
-import { formatCep } from "@/lib/geo";
+import { DEPOT, formatCep, haversineKm, orderByProximity, routeDistanceKm } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/mapa")({
   head: () => ({
     meta: [
-      { title: "Mapa de entregas — RotaFacil SP" },
-      { name: "description", content: "Mapa interativo de entregas por CEP em São Paulo." },
-      { property: "og:title", content: "Mapa de entregas — RotaFacil SP" },
-      { property: "og:description", content: "Mapa interativo de entregas por CEP em São Paulo." },
+      { title: "Mapa Operacional — RotaFacil SP" },
+      { name: "description", content: "Mapa interativo de entregas e traçado de rotas estratégicas em São Paulo." },
+      { property: "og:title", content: "Mapa Operacional — RotaFacil SP" },
+      { property: "og:description", content: "Mapa interativo de entregas e traçado de rotas estratégicas em São Paulo." },
     ],
   }),
   loader: ({ context }) => context.queryClient.ensureQueryData(invoicesQuery),
@@ -29,6 +30,7 @@ function MapaPage() {
   const [filter, setFilter] = useState<InvoiceStatus | "todas">("todas");
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [strategicRouteMode, setStrategicRouteMode] = useState(false);
 
   const list = useMemo(() => {
     const s = search.toLowerCase().trim();
@@ -46,21 +48,32 @@ function MapaPage() {
     });
   }, [invoices, filter, search]);
 
-  const stops: MapStop[] = useMemo(
-    () =>
-      list
-        .filter((i) => i.lat != null && i.lng != null)
-        .map((i) => ({
-          id: i.id,
-          lat: i.lat!,
-          lng: i.lng!,
-          status: i.status,
-          label: i.ordem ? String(i.ordem) : "•",
-          title: `NF ${i.numero} — ${i.destinatario}`,
-          subtitle: `${i.logradouro}, ${i.numero_endereco} · ${formatCep(i.cep)}`,
-        })),
-    [list],
-  );
+  // Se modo rota estratégica estiver ativo, ordena os pontos da lista por proximidade sequencial da Base
+  const orderedList = useMemo(() => {
+    if (!strategicRouteMode) return list;
+    return orderByProximity(list, DEPOT);
+  }, [list, strategicRouteMode]);
+
+  const stops: MapStop[] = useMemo(() => {
+    const valid = orderedList.filter((i) => i.lat != null && i.lng != null);
+    let cur = { lat: DEPOT.lat, lng: DEPOT.lng };
+
+    return valid.map((i, idx) => {
+      const distFromPrev = haversineKm(cur, { lat: i.lat!, lng: i.lng! });
+      cur = { lat: i.lat!, lng: i.lng! };
+
+      return {
+        id: i.id,
+        lat: i.lat!,
+        lng: i.lng!,
+        status: i.status,
+        label: strategicRouteMode ? String(idx + 1) : i.ordem ? String(i.ordem) : "•",
+        title: `${strategicRouteMode ? `#${idx + 1} ` : ""}NF ${i.numero} — ${i.destinatario}`,
+        subtitle: `${i.logradouro}, ${i.numero_endereco} · ${formatCep(i.cep)}`,
+        distFromPrev,
+      };
+    });
+  }, [orderedList, strategicRouteMode]);
 
   const onSelect = useCallback((id: string) => setSelected(id), []);
 
@@ -70,15 +83,37 @@ function MapaPage() {
     return c;
   }, [invoices]);
 
+  const totalKm = useMemo(() => routeDistanceKm(stops, DEPOT), [stops]);
+
   return (
     <div className="flex h-[calc(100vh-60px)] md:h-screen flex-col bg-background animate-in fade-in-50 duration-300">
       <PageHeader
         title="Mapa Operacional"
-        subtitle="Geolocalização das entregas e paradas na Grande São Paulo"
+        subtitle={`Base: ${DEPOT.nome} (${DEPOT.endereco})`}
+        actions={
+          <Button
+            size="sm"
+            variant={strategicRouteMode ? "default" : "outline"}
+            onClick={() => setStrategicRouteMode(!strategicRouteMode)}
+            className={`rounded-xl gap-1.5 text-xs font-bold transition-all shadow-xs ${
+              strategicRouteMode
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-blue-500/25"
+                : "border-border text-foreground hover:bg-muted"
+            }`}
+          >
+            <Navigation size={14} className={strategicRouteMode ? "animate-pulse" : ""} />
+            <span>{strategicRouteMode ? "Rota Estratégica Ativa" : "Ativar Rota Estratégica"}</span>
+            {strategicRouteMode && (
+              <span className="font-mono text-[10px] bg-white/20 px-1.5 py-0.2 rounded-full">
+                {totalKm.toFixed(1)} km
+              </span>
+            )}
+          </Button>
+        }
       />
 
-      {/* Barra de Filtros com Glassmorphism */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-card/75 px-6 py-2.5 backdrop-blur-md">
+      {/* Barra de Filtros com Estilo Corporativo */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-card/85 px-6 py-2.5 backdrop-blur-md">
         <div className="flex flex-wrap items-center gap-1.5">
           {FILTERS.map((f) => (
             <button
@@ -121,27 +156,42 @@ function MapaPage() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* Mapa Interativo */}
         <div className="h-80 lg:h-auto lg:flex-1 relative">
-          <LazyMap stops={stops} selectedId={selected} onSelect={onSelect} />
+          <LazyMap
+            stops={stops}
+            showRoute={strategicRouteMode}
+            selectedId={selected}
+            onSelect={onSelect}
+          />
         </div>
 
         {/* Lista Lateral de Paradas */}
         <div className="overflow-y-auto border-t lg:border-t-0 lg:border-l border-border/60 bg-card/90 lg:w-96 flex flex-col">
           <div className="p-3 border-b border-border/60 text-xs font-bold uppercase tracking-wider text-muted-foreground bg-muted/30 flex items-center justify-between">
-            <span>Paradas Filtradas ({list.length})</span>
-            <span className="text-[11px] font-normal normal-case">
+            <span className="flex items-center gap-1.5">
+              <span>Paradas {strategicRouteMode ? "Estratégicas" : "Filtradas"}</span>
+              <span className="font-mono text-foreground font-bold">({orderedList.length})</span>
+            </span>
+            <span className="text-[11px] font-normal normal-case text-muted-foreground">
               {stops.length} mapeadas
             </span>
           </div>
 
+          {strategicRouteMode && (
+            <div className="px-3.5 py-2 bg-blue-50/70 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-900/60 text-[11px] text-blue-900 dark:text-blue-200 font-medium flex items-center justify-between">
+              <span>🎯 Trajeto encadeado por menor raio</span>
+              <strong className="font-mono">{totalKm.toFixed(1)} km total</strong>
+            </div>
+          )}
+
           <div className="divide-y divide-border/60 flex-1">
-            {list.length === 0 ? (
+            {orderedList.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground space-y-2">
                 <MapPin className="h-8 w-8 mx-auto text-muted-foreground/30" />
                 <p className="text-sm font-semibold">Nenhuma nota encontrada</p>
                 <p className="text-xs">Altere os filtros para ver outras entregas.</p>
               </div>
             ) : (
-              list.map((i) => (
+              orderedList.map((i, idx) => (
                 <button
                   key={i.id}
                   type="button"
@@ -152,10 +202,17 @@ function MapaPage() {
                   )}
                 >
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="font-mono text-xs font-bold text-foreground">
-                      NF {i.numero}
-                      <span className="text-muted-foreground font-normal">/{i.serie}</span>
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {strategicRouteMode && (
+                        <span className="grid h-5 w-5 place-items-center rounded bg-primary text-primary-foreground text-[10px] font-mono font-bold">
+                          {idx + 1}
+                        </span>
+                      )}
+                      <span className="font-mono text-xs font-bold text-foreground">
+                        NF {i.numero}
+                        <span className="text-muted-foreground font-normal">/{i.serie}</span>
+                      </span>
+                    </div>
                     <StatusBadge status={i.status} />
                   </div>
                   <p className="truncate font-semibold text-xs text-foreground">{i.destinatario}</p>
@@ -165,7 +222,7 @@ function MapaPage() {
                   <div className="flex items-center justify-between mt-1.5 text-[10px] font-mono text-muted-foreground">
                     <span>{formatCep(i.cep)}</span>
                     {i.lat == null && (
-                      <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                      <span className="text-rose-600 dark:text-rose-400 font-semibold">
                         Sem GPS
                       </span>
                     )}

@@ -257,7 +257,7 @@ function NotasPage() {
               <span className="text-xs text-muted-foreground font-medium">cadastradas</span>
             </div>
             <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
               <span>{stats.pendentes} pendentes para despacho</span>
             </div>
           </div>
@@ -321,7 +321,7 @@ function NotasPage() {
             </div>
             <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500"
+                className="h-full rounded-full bg-gradient-to-r from-blue-600 to-emerald-500 transition-all duration-500"
                 style={{ width: `${stats.taxaEntrega}%` }}
               />
             </div>
@@ -539,7 +539,7 @@ function NotasPage() {
               <Button
                 type="submit"
                 disabled={saving}
-                className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold shadow-md shadow-amber-500/20 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 py-2.5"
+                className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold shadow-md shadow-blue-500/25 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 py-2.5"
               >
                 {saving && <Loader2 className="animate-spin mr-2" />} Lançar Nota Fiscal
               </Button>
