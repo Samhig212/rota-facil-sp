@@ -113,3 +113,4 @@ INSERT IGNORE INTO `invoices` (`id`, `numero`, `serie`, `chave`, `destinatario`,
   ('inv-002', '10422', '1', '352601000104220002', 'Distribuidora Santo Amaro', '04753000', 'Avenida Washington Luís', '2100', 'Santo Amaro', 'São Paulo', 3280.50, 8, -23.6550, -46.6980, 'pendente'),
   ('inv-003', '10423', '1', '352601000104230003', 'Auto Peças Interlagos', '04776000', 'Avenida Interlagos', '3500', 'Interlagos', 'São Paulo', 890.00, 2, -23.6910, -46.6870, 'pendente'),
   ('inv-004', '10424', '1', '352601000104240004', 'Empório Morumbi Gourmet', '05705000', 'Rua Doutor Fonseca Brasil', '420', 'Vila Andrade', 'São Paulo', 4120.00, 12, -23.6280, -46.7240, 'pendente');
+

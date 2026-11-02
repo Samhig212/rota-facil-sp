@@ -158,3 +158,4 @@ export const api = {
       api.post<any>(`/api/routes/${id}/close`, { km_final }),
   },
 };
+
