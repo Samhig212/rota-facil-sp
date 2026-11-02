@@ -39,11 +39,11 @@ function MapaPage() {
       if (!matchStatus) return false;
       if (!s) return true;
       return (
-        i.numero.toLowerCase().includes(s) ||
-        i.destinatario.toLowerCase().includes(s) ||
-        i.logradouro.toLowerCase().includes(s) ||
-        i.bairro.toLowerCase().includes(s) ||
-        i.cep.includes(s)
+        (i.numero && i.numero.toLowerCase().includes(s)) ||
+        (i.destinatario && i.destinatario.toLowerCase().includes(s)) ||
+        (i.logradouro && i.logradouro.toLowerCase().includes(s)) ||
+        (i.bairro && i.bairro.toLowerCase().includes(s)) ||
+        (i.cep && i.cep.includes(s))
       );
     });
   }, [invoices, filter, search]);
@@ -55,21 +55,23 @@ function MapaPage() {
   }, [list, strategicRouteMode]);
 
   const stops: MapStop[] = useMemo(() => {
-    const valid = orderedList.filter((i) => i.lat != null && i.lng != null);
+    const valid = orderedList.filter(
+      (i) => i.lat != null && i.lng != null && !Number.isNaN(Number(i.lat)) && !Number.isNaN(Number(i.lng)),
+    );
     let cur = { lat: DEPOT.lat, lng: DEPOT.lng };
 
     return valid.map((i, idx) => {
-      const distFromPrev = haversineKm(cur, { lat: i.lat!, lng: i.lng! });
-      cur = { lat: i.lat!, lng: i.lng! };
+      const distFromPrev = haversineKm(cur, { lat: Number(i.lat), lng: Number(i.lng) });
+      cur = { lat: Number(i.lat), lng: Number(i.lng) };
 
       return {
         id: i.id,
-        lat: i.lat!,
-        lng: i.lng!,
+        lat: Number(i.lat),
+        lng: Number(i.lng),
         status: i.status,
         label: strategicRouteMode ? String(idx + 1) : i.ordem ? String(i.ordem) : "•",
         title: `${strategicRouteMode ? `#${idx + 1} ` : ""}NF ${i.numero} — ${i.destinatario}`,
-        subtitle: `${i.logradouro}, ${i.numero_endereco} · ${formatCep(i.cep)}`,
+        subtitle: `${i.logradouro || ""}, ${i.numero_endereco || ""} · ${formatCep(i.cep || "")}`,
         distFromPrev,
       };
     });

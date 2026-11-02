@@ -32,14 +32,24 @@ export function formatCep(cep: string) {
 
 /** Distância em km entre dois pontos (fórmula de Haversine). */
 export function haversineKm(a: LatLng, b: LatLng) {
+  if (
+    a == null || b == null ||
+    a.lat == null || a.lng == null ||
+    b.lat == null || b.lng == null ||
+    Number.isNaN(Number(a.lat)) || Number.isNaN(Number(a.lng)) ||
+    Number.isNaN(Number(b.lat)) || Number.isNaN(Number(b.lng))
+  ) {
+    return 0;
+  }
   const R = 6371;
   const toRad = (x: number) => (x * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
+  const dLat = toRad(Number(b.lat) - Number(a.lat));
+  const dLng = toRad(Number(b.lng) - Number(a.lng));
   const h =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
+    Math.cos(toRad(Number(a.lat))) * Math.cos(toRad(Number(b.lat))) * Math.sin(dLng / 2) ** 2;
+  const clampedH = Math.min(1, Math.max(0, h));
+  return 2 * R * Math.asin(Math.sqrt(clampedH));
 }
 
 /**
@@ -51,25 +61,30 @@ export function orderByProximity<T extends { lat: number | null; lng: number | n
   stops: T[],
   start: LatLng = DEPOT,
 ): T[] {
-  const withCoords = stops.filter((s) => s.lat != null && s.lng != null);
-  const without = stops.filter((s) => s.lat == null || s.lng == null);
+  const withCoords = stops.filter(
+    (s) => s.lat != null && s.lng != null && !Number.isNaN(Number(s.lat)) && !Number.isNaN(Number(s.lng))
+  );
+  const without = stops.filter(
+    (s) => s.lat == null || s.lng == null || Number.isNaN(Number(s.lat)) || Number.isNaN(Number(s.lng))
+  );
   const result: T[] = [];
   let current: LatLng = start;
   const remaining = [...withCoords];
 
-  while (remaining.length) {
+  while (remaining.length > 0) {
     let best = 0;
     let bestD = Infinity;
-    remaining.forEach((s, i) => {
-      const d = haversineKm(current, { lat: s.lat!, lng: s.lng! });
-      if (d < bestD) {
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i]!;
+      const d = haversineKm(current, { lat: Number(s.lat), lng: Number(s.lng) });
+      if (!Number.isNaN(d) && d < bestD) {
         bestD = d;
         best = i;
       }
-    });
+    }
     const next = remaining.splice(best, 1)[0]!;
     result.push(next);
-    current = { lat: next.lat!, lng: next.lng! };
+    current = { lat: Number(next.lat), lng: Number(next.lng) };
   }
   return [...result, ...without];
 }

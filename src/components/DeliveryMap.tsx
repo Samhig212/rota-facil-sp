@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { DEPOT, haversineKm, SP_CENTER } from "@/lib/geo";
+import { DEPOT, haversineKm } from "@/lib/geo";
 
 export type MapStop = {
   id: string;
@@ -31,16 +31,26 @@ export default function DeliveryMap({
   const markers = useRef<Record<string, L.Marker>>({});
 
   useEffect(() => {
-    if (!el.current || map.current) return;
-    map.current = L.map(el.current, { zoomControl: true }).setView([DEPOT.lat, DEPOT.lng], 12);
+    if (!el.current) return;
+    if (map.current) {
+      map.current.remove();
+      map.current = null;
+    }
+
+    const m = L.map(el.current, { zoomControl: true }).setView([DEPOT.lat, DEPOT.lng], 12);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap",
-    }).addTo(map.current);
-    layer.current = L.layerGroup().addTo(map.current);
+    }).addTo(m);
+
+    const g = L.layerGroup().addTo(m);
+    map.current = m;
+    layer.current = g;
+
     return () => {
-      map.current?.remove();
+      m.remove();
       map.current = null;
+      layer.current = null;
     };
   }, []);
 
@@ -48,6 +58,7 @@ export default function DeliveryMap({
     const m = map.current;
     const g = layer.current;
     if (!m || !g) return;
+
     g.clearLayers();
     markers.current = {};
 
@@ -71,14 +82,18 @@ export default function DeliveryMap({
       )
       .addTo(g);
 
+    const validStops = stops.filter(
+      (s) => s.lat != null && s.lng != null && !Number.isNaN(Number(s.lat)) && !Number.isNaN(Number(s.lng))
+    );
+
     let prevLoc = { lat: DEPOT.lat, lng: DEPOT.lng };
 
-    for (let i = 0; i < stops.length; i++) {
-      const s = stops[i];
-      const distFromPrev = s.distFromPrev ?? haversineKm(prevLoc, { lat: s.lat, lng: s.lng });
-      prevLoc = { lat: s.lat, lng: s.lng };
+    for (let i = 0; i < validStops.length; i++) {
+      const s = validStops[i]!;
+      const distFromPrev = s.distFromPrev ?? haversineKm(prevLoc, { lat: Number(s.lat), lng: Number(s.lng) });
+      prevLoc = { lat: Number(s.lat), lng: Number(s.lng) };
 
-      const mk = L.marker([s.lat, s.lng], {
+      const mk = L.marker([Number(s.lat), Number(s.lng)], {
         icon: L.divIcon({
           className: "",
           html: `<div class="stop-pin" data-status="${s.status}"><span>${s.label}</span></div>`,
@@ -102,14 +117,16 @@ export default function DeliveryMap({
         )
         .addTo(g);
 
-      if (onSelect) mk.on("click", () => onSelect(s.id));
+      if (onSelect) {
+        mk.on("click", () => onSelect(s.id));
+      }
       markers.current[s.id] = mk;
     }
 
-    if (showRoute && stops.length) {
+    if (showRoute && validStops.length) {
       const latlngs: [number, number][] = [
         [DEPOT.lat, DEPOT.lng],
-        ...stops.map((s) => [s.lat, s.lng] as [number, number]),
+        ...validStops.map((s) => [Number(s.lat), Number(s.lng)] as [number, number]),
       ];
 
       // Linha de reflexo / halo externo
@@ -132,19 +149,21 @@ export default function DeliveryMap({
       }).addTo(g);
     }
 
-    if (stops.length) {
+    if (validStops.length) {
       const b = L.latLngBounds([
         [DEPOT.lat, DEPOT.lng],
-        ...stops.map((s) => [s.lat, s.lng] as [number, number]),
+        ...validStops.map((s) => [Number(s.lat), Number(s.lng)] as [number, number]),
       ]);
-      m.fitBounds(b, { padding: [45, 45], maxZoom: 15 });
+      if (b.isValid()) {
+        m.fitBounds(b, { padding: [45, 45], maxZoom: 15, animate: false });
+      }
     }
   }, [stops, showRoute, onSelect]);
 
   useEffect(() => {
     if (selectedId && markers.current[selectedId]) {
       const mk = markers.current[selectedId];
-      map.current?.setView(mk.getLatLng(), Math.max(map.current.getZoom(), 14));
+      map.current?.setView(mk.getLatLng(), Math.max(map.current.getZoom(), 14), { animate: false });
       mk.openPopup();
     }
   }, [selectedId]);

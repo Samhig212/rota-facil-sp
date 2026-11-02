@@ -127,20 +127,22 @@ function DespachoPage() {
 
     return order.map((inv, idx) => {
       let dist = 0;
-      if (inv.lat != null && inv.lng != null) {
-        dist = haversineKm(cur, { lat: inv.lat, lng: inv.lng });
+      if (inv.lat != null && inv.lng != null && !Number.isNaN(Number(inv.lat)) && !Number.isNaN(Number(inv.lng))) {
+        dist = haversineKm(cur, { lat: Number(inv.lat), lng: Number(inv.lng) });
         cum += dist;
-        cur = { lat: inv.lat, lng: inv.lng };
+        cur = { lat: Number(inv.lat), lng: Number(inv.lng) };
       }
       const prevInv = idx > 0 ? order[idx - 1] : null;
-      const sameBairro = prevInv && prevInv.bairro && inv.bairro && prevInv.bairro.toLowerCase() === inv.bairro.toLowerCase();
+      const sameBairro = Boolean(
+        prevInv && prevInv.bairro && inv.bairro && prevInv.bairro.toLowerCase() === inv.bairro.toLowerCase(),
+      );
 
       return {
         idx,
         dist,
         cum,
         sameBairro,
-        prevNumero: prevInv?.numero,
+        prevNumero: prevInv?.numero || "Base",
       };
     });
   }, [order]);
@@ -148,24 +150,25 @@ function DespachoPage() {
   const stops: MapStop[] = useMemo(
     () =>
       order
-        .filter((i) => i.lat != null && i.lng != null)
-        .map((i, idx) => {
-          const leg = legsInfo[idx];
+        .filter((i) => i.lat != null && i.lng != null && !Number.isNaN(Number(i.lat)) && !Number.isNaN(Number(i.lng)))
+        .map((i) => {
+          const orderIdx = order.findIndex((x) => x.id === i.id);
+          const leg = legsInfo[orderIdx];
           return {
             id: i.id,
-            lat: i.lat!,
-            lng: i.lng!,
+            lat: Number(i.lat),
+            lng: Number(i.lng),
             status: "em_rota",
-            label: String(order.indexOf(i) + 1),
-            title: `#${order.indexOf(i) + 1}. NF ${i.numero} — ${i.destinatario}`,
+            label: String(orderIdx + 1),
+            title: `#${orderIdx + 1}. NF ${i.numero} — ${i.destinatario}`,
             subtitle: `${i.logradouro}, ${i.numero_endereco} · ${i.bairro} (${formatCep(i.cep)})`,
-            distFromPrev: leg?.dist,
+            distFromPrev: leg?.dist ?? 0,
           };
         }),
     [order, legsInfo],
   );
 
-  const totalKm = routeDistanceKm(stops, DEPOT);
+  const totalKm = useMemo(() => routeDistanceKm(stops, DEPOT), [stops]);
 
   async function despachar() {
     if (!vehicleId || !driverId) {
@@ -481,12 +484,12 @@ function DespachoPage() {
                           {isFirst ? (
                             <span className="inline-flex items-center gap-1 font-semibold text-blue-700 dark:text-blue-300">
                               <MapPin size={12} />
-                              Saída da Base (R. Prof. Oswaldo Quirino Simões) → 1ª Entrega ({leg.dist.toFixed(1)} km)
+                              Saída da Base (R. Prof. Oswaldo Quirino Simões) → 1ª Entrega ({(leg?.dist ?? 0).toFixed(1)} km)
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
                               <span className="text-xs">🎯</span>
-                              Mais Próxima: +{leg.dist.toFixed(1)} km da NF {leg.prevNumero} (Acumulado: {leg.cum.toFixed(1)} km)
+                              Mais Próxima: +{(leg?.dist ?? 0).toFixed(1)} km da NF {leg?.prevNumero || "anterior"} (Acumulado: {(leg?.cum ?? 0).toFixed(1)} km)
                             </span>
                           )}
                         </div>
