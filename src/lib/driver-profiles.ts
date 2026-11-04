@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 export interface DriverProfile {
-  foto?: string;
-  cnhFoto?: string;
-  cnhCategoria?: string;
-  cnhValidade?: string;
-  observacoes?: string;
+  foto?: string | undefined;
+  cnhFoto?: string | undefined;
+  cnhCategoria?: string | undefined;
+  cnhValidade?: string | undefined;
+  observacoes?: string | undefined;
 }
 
 const STORAGE_KEY = "rotafacil_driver_profiles_v1";
@@ -59,60 +59,40 @@ function writeStorage(data: Record<string, DriverProfile>) {
 
 export function getDriverProfile(idOrCnh?: string | null): DriverProfile | null {
   if (!idOrCnh) return null;
-  const data = readStorage();
-  const cleanKey = idOrCnh.trim().replace(/\D/g, "");
-  return data[idOrCnh] || (cleanKey ? data[cleanKey] : null) || null;
+  const storage = readStorage();
+  return storage[idOrCnh] || null;
 }
 
-export function saveDriverProfile(
-  primaryKey: string,
-  profile: DriverProfile,
-  secondaryKey?: string,
-) {
-  if (!primaryKey) return;
-  const current = readStorage();
-  const updated = { ...current };
-
-  const existing = updated[primaryKey] || {};
-  const merged = { ...existing, ...profile };
-
-  updated[primaryKey] = merged;
-  if (secondaryKey) {
-    updated[secondaryKey] = merged;
-    const cleanSec = secondaryKey.replace(/\D/g, "");
-    if (cleanSec) updated[cleanSec] = merged;
+export function saveDriverProfile(id: string, profile: DriverProfile, cnh?: string) {
+  const storage = readStorage();
+  const existing = storage[id] || (cnh ? storage[cnh] : null) || {};
+  const updated = {
+    ...storage,
+    [id]: {
+      ...existing,
+      ...profile,
+    },
+  };
+  if (cnh && cnh !== id) {
+    updated[cnh] = {
+      ...existing,
+      ...profile,
+    };
   }
-
-  const cleanPrimary = primaryKey.replace(/\D/g, "");
-  if (cleanPrimary) updated[cleanPrimary] = merged;
-
   writeStorage(updated);
 }
 
-export function deleteDriverProfile(key: string) {
-  const current = readStorage();
-  delete current[key];
-  const clean = key.replace(/\D/g, "");
-  if (clean) delete current[clean];
-  writeStorage(current);
-}
-
-export function useDriverProfile(idOrCnh?: string | null): DriverProfile | null {
+export function useDriverProfile(idOrCnh?: string | null) {
   const [profile, setProfile] = useState<DriverProfile | null>(() => getDriverProfile(idOrCnh));
 
   useEffect(() => {
-    setProfile(getDriverProfile(idOrCnh));
-    const handleUpdate = () => {
+    function refresh() {
       setProfile(getDriverProfile(idOrCnh));
-    };
-    window.addEventListener("rotafacil:driver-profiles-updated", handleUpdate);
-    window.addEventListener("storage", handleUpdate);
-    return () => {
-      window.removeEventListener("rotafacil:driver-profiles-updated", handleUpdate);
-      window.removeEventListener("storage", handleUpdate);
-    };
+    }
+    refresh();
+    window.addEventListener("rotafacil:driver-profiles-updated", refresh);
+    return () => window.removeEventListener("rotafacil:driver-profiles-updated", refresh);
   }, [idOrCnh]);
 
   return profile;
 }
-

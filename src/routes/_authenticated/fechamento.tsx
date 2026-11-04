@@ -2,9 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Clock, Lock, RotateCcw, Truck, Undo2 } from "lucide-react";
+import { CheckCircle2, Clock, FolderOpen, Lock, RotateCcw, Truck, Undo2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader, Plate, StatusBadge } from "@/components/fleet-ui";
+import { InvoiceDocumentsModal } from "@/components/InvoiceDocumentsModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,8 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { invoicesQuery, MOTIVOS_DEVOLUCAO, routesQuery } from "@/lib/fleet";
+import { invoicesQuery, MOTIVOS_DEVOLUCAO, routesQuery, type Invoice } from "@/lib/fleet";
 import { getDriverProfile } from "@/lib/driver-profiles";
+import { useInvoiceDocuments } from "@/lib/invoice-documents";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/fechamento")({
@@ -48,6 +50,10 @@ function FechamentoPage() {
   const [kmFinal, setKmFinal] = useState("");
   const [baixas, setBaixas] = useState<Record<string, Baixa>>({});
   const [saving, setSaving] = useState(false);
+
+  // Anexo de Canhotos e Documentos Digitalizados
+  const { docs: allDocs } = useInvoiceDocuments();
+  const [selectedInvoiceForDocs, setSelectedInvoiceForDocs] = useState<Invoice | null>(null);
 
   useEffect(() => {
     if (!routeId && abertas[0]) setRouteId(abertas[0].id);
@@ -130,72 +136,89 @@ function FechamentoPage() {
             </div>
           ) : (
             <>
-              {/* Seleção de rota em aberto */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Selecione a Rota para Baixa ({abertas.length} em trânsito)
-                </span>
-                <div className="flex flex-wrap gap-2.5">
-                  {abertas.map((r) => {
-                    const prof = getDriverProfile(r.driver_id);
-                    return (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => {
-                          setRouteId(r.id);
-                          setBaixas({});
-                          setKmFinal("");
-                        }}
-                        className={cn(
-                          "flex items-center gap-2.5 rounded-xl border p-2.5 text-xs font-semibold transition-all duration-200 active:scale-95 shadow-xs",
-                          r.id === routeId
-                            ? "border-primary bg-primary/10 ring-2 ring-primary text-foreground font-bold"
-                            : "border-border/70 bg-card hover:bg-muted/50 text-muted-foreground hover:text-foreground",
-                        )}
-                      >
+              {/* Seletor de Rota em Aberto */}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {abertas.map((r) => {
+                  const prof = getDriverProfile(r.driver_id);
+                  const isSel = r.id === routeId;
+                  const stopsCount = invoices.filter((i) => i.route_id === r.id).length;
+
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        setRouteId(r.id);
+                        setKmFinal("");
+                        setBaixas({});
+                      }}
+                      className={cn(
+                        "rounded-2xl border p-4 text-left transition-all duration-200 cursor-pointer flex flex-col justify-between space-y-3",
+                        isSel
+                          ? "border-primary bg-primary/10 shadow-md shadow-primary/10"
+                          : "border-border/70 bg-card/80 hover:border-primary/40 hover:bg-muted/40",
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
                         <Plate>{r.vehicles?.placa}</Plate>
-                        {prof?.foto ? (
-                          <img
-                            src={prof.foto}
-                            alt={r.drivers?.nome}
-                            className="h-5 w-5 rounded-full object-cover shrink-0 border"
-                          />
-                        ) : null}
-                        <span className="text-foreground">{r.drivers?.nome}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          KM {r.km_inicial}
+                        <span className="font-mono text-xs font-bold text-primary">
+                          {stopsCount} {stopsCount === 1 ? "entrega" : "entregas"}
                         </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="text-sm font-black text-foreground truncate">
+                          {r.drivers?.nome}
+                        </p>
+                        <p className="font-mono text-xs text-muted-foreground">
+                          KM Inicial: {r.km_inicial.toLocaleString("pt-BR")}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-border/40 text-[11px] text-muted-foreground">
+                        <span>{new Date(r.data + "T12:00").toLocaleDateString("pt-BR")}</span>
+                        <StatusBadge status="aberta" />
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
+              {/* Painel de Fechamento da Rota Selecionada */}
               {route && (
                 <div className="rounded-2xl border border-border/70 bg-card/90 shadow-sm backdrop-blur-xs overflow-hidden">
-                  {/* Bloco de Apontamento de KM e Condutor */}
-                  <div className="grid gap-4 border-b border-border/60 p-5 sm:grid-cols-3 bg-muted/20">
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                        KM Inicial (Saída)
-                      </p>
-                      <p className="font-mono text-2xl font-black text-foreground">
-                        {route.km_inicial}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {route.drivers?.nome} · {route.vehicles?.modelo}
-                      </p>
+                  <div className="border-b border-border/60 p-5 bg-muted/20 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <Plate>{route.vehicles?.placa}</Plate>
+                      <div>
+                        <h3 className="font-black text-foreground text-sm sm:text-base">
+                          {route.drivers?.nome}
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
+                          {route.vehicles?.modelo} · KM Inicial registrado:{" "}
+                          <strong className="text-foreground font-mono">
+                            {route.km_inicial.toLocaleString("pt-BR")}
+                          </strong>
+                        </p>
+                      </div>
                     </div>
 
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground font-medium">Status:</span>
+                      <StatusBadge status="aberta" />
+                    </div>
+                  </div>
+
+                  {/* Formulário do Hodômetro Final */}
+                  <div className="border-b border-border/60 p-5 bg-muted/10 grid gap-4 sm:grid-cols-2 items-center">
                     <div className="space-y-1.5">
                       <Label htmlFor="kmf" className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                        KM Final do Hodômetro
+                        KM Final do Hodômetro *
                       </Label>
                       <Input
                         id="kmf"
                         type="number"
-                        placeholder="Ex: 45290"
+                        placeholder="Ex: 48350"
                         className="font-mono text-lg font-black rounded-xl transition-all duration-200 focus-visible:ring-primary/40"
                         value={kmFinal}
                         onChange={(e) => setKmFinal(e.target.value)}
@@ -204,7 +227,7 @@ function FechamentoPage() {
 
                     <div className="space-y-1">
                       <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                        Distância Percorrida
+                        Distância Percorrida no Turno
                       </p>
                       <p
                         className={cn(
@@ -212,20 +235,24 @@ function FechamentoPage() {
                           km != null && km < 0 ? "text-destructive" : "text-foreground",
                         )}
                       >
-                        {km != null ? `${km} km` : "—"}
+                        {km != null ? `${km.toLocaleString("pt-BR")} km` : "—"}
                       </p>
-                      {km != null && km > 0 && (
+                      {km != null && km >= 0 && (
                         <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-                          Hodômetro válido
+                          Hodômetro válido para encerramento
                         </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Lista de Paradas para Baixa */}
+                  {/* Lista de Paradas para Baixa e Digitalização */}
                   <ul className="divide-y divide-border/60">
                     {stops.map((s) => {
                       const b = get(s.id);
+                      const docCount = allDocs.filter(
+                        (d) => d.invoiceId === s.id || d.invoiceId === s.numero,
+                      ).length;
+
                       return (
                         <li key={s.id} className="p-4 sm:p-5 transition-colors hover:bg-muted/20">
                           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -244,6 +271,21 @@ function FechamentoPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
+                              {/* Botão para Digitalização de Canhoto / PDF */}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className={cn(
+                                  "rounded-xl gap-1.5 transition-all text-xs font-semibold",
+                                  docCount > 0 && "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 font-bold",
+                                )}
+                                onClick={() => setSelectedInvoiceForDocs(s)}
+                                title="Digitalizar comprovante de entrega / canhoto em PDF"
+                              >
+                                <FolderOpen size={13} />
+                                <span>{docCount > 0 ? "Canhoto Anexado" : "Digitalizar Canhoto"}</span>
+                              </Button>
+
                               <Button
                                 size="sm"
                                 variant={b.status === "entregue" ? "default" : "outline"}
@@ -378,6 +420,13 @@ function FechamentoPage() {
           </div>
         </aside>
       </div>
+
+      {/* Modal de Documentos / Canhoto */}
+      <InvoiceDocumentsModal
+        isOpen={Boolean(selectedInvoiceForDocs)}
+        onClose={() => setSelectedInvoiceForDocs(null)}
+        invoice={selectedInvoiceForDocs}
+      />
     </div>
   );
 }

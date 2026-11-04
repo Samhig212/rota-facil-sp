@@ -82,6 +82,40 @@ CREATE TABLE IF NOT EXISTS `invoices` (
   CONSTRAINT `fk_invoices_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 6. TABELA DE MANUTENÇÃO & VISTORIA PREVENTIVA DE VEÍCULOS
+CREATE TABLE IF NOT EXISTS `vehicle_maintenances` (
+  `id` VARCHAR(36) NOT NULL PRIMARY KEY,
+  `vehicle_id` VARCHAR(36) NOT NULL,
+  `tipo` VARCHAR(50) NOT NULL DEFAULT 'oleo_filtros',
+  `descricao` VARCHAR(255) NOT NULL,
+  `km_registro` INT NOT NULL DEFAULT 0,
+  `km_proxima` INT DEFAULT NULL,
+  `intervalo_km` INT DEFAULT NULL,
+  `data_registro` VARCHAR(20) NOT NULL,
+  `data_validade_vistoria` VARCHAR(20) DEFAULT NULL,
+  `custo` DECIMAL(10,2) DEFAULT NULL,
+  `oficina` VARCHAR(150) DEFAULT NULL,
+  `observacoes` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_maint_vehicle` (`vehicle_id`),
+  CONSTRAINT `fk_maint_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 7. TABELA DE DOCUMENTOS DIGITALIZADOS (PDF / DANFE / CANHOTO / PASTA)
+CREATE TABLE IF NOT EXISTS `invoice_documents` (
+  `id` VARCHAR(36) NOT NULL PRIMARY KEY,
+  `invoice_id` VARCHAR(36) NOT NULL,
+  `tipo` VARCHAR(50) NOT NULL DEFAULT 'danfe',
+  `nome_arquivo` VARCHAR(255) NOT NULL,
+  `caminho_pasta` VARCHAR(500) DEFAULT NULL,
+  `url_data` LONGTEXT DEFAULT NULL,
+  `tamanho_bytes` INT DEFAULT NULL,
+  `observacoes` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_doc_invoice` (`invoice_id`),
+  CONSTRAINT `fk_doc_invoice` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ==============================================================================
 -- DADOS INICIAIS DE DEMONSTRAÇÃO (SEED)
 -- ==============================================================================
@@ -113,4 +147,3 @@ INSERT IGNORE INTO `invoices` (`id`, `numero`, `serie`, `chave`, `destinatario`,
   ('inv-002', '10422', '1', '352601000104220002', 'Distribuidora Santo Amaro', '04753000', 'Avenida Washington Luís', '2100', 'Santo Amaro', 'São Paulo', 3280.50, 8, -23.6550, -46.6980, 'pendente'),
   ('inv-003', '10423', '1', '352601000104230003', 'Auto Peças Interlagos', '04776000', 'Avenida Interlagos', '3500', 'Interlagos', 'São Paulo', 890.00, 2, -23.6910, -46.6870, 'pendente'),
   ('inv-004', '10424', '1', '352601000104240004', 'Empório Morumbi Gourmet', '05705000', 'Rua Doutor Fonseca Brasil', '420', 'Vila Andrade', 'São Paulo', 4120.00, 12, -23.6280, -46.7240, 'pendente');
-

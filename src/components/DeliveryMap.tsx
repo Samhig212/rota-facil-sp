@@ -10,8 +10,10 @@ export type MapStop = {
   status: string;
   label: string;
   title: string;
-  subtitle?: string;
-  distFromPrev?: number;
+  subtitle?: string | undefined;
+  distFromPrev?: number | undefined;
+  isReference?: boolean | undefined;
+  proximityStatus?: "perto" | "medio" | "longe" | "ref" | "sem_gps" | undefined;
 };
 
 export default function DeliveryMap({
@@ -22,8 +24,8 @@ export default function DeliveryMap({
 }: {
   stops: MapStop[];
   showRoute?: boolean;
-  selectedId?: string | null;
-  onSelect?: (id: string) => void;
+  selectedId?: string | null | undefined;
+  onSelect?: ((id: string) => void) | undefined;
 }) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
@@ -93,17 +95,35 @@ export default function DeliveryMap({
       const distFromPrev = s.distFromPrev ?? haversineKm(prevLoc, { lat: Number(s.lat), lng: Number(s.lng) });
       prevLoc = { lat: Number(s.lat), lng: Number(s.lng) };
 
+      const proxAttr = s.isReference
+        ? 'data-proximity="ref"'
+        : s.proximityStatus
+        ? `data-proximity="${s.proximityStatus}"`
+        : "";
+      const labelContent = s.isReference ? "🎯" : s.label;
+
       const mk = L.marker([Number(s.lat), Number(s.lng)], {
         icon: L.divIcon({
           className: "",
-          html: `<div class="stop-pin" data-status="${s.status}"><span>${s.label}</span></div>`,
-          iconSize: [28, 28],
-          iconAnchor: [4, 28],
+          html: `<div class="stop-pin" data-status="${s.status}" ${proxAttr}><span>${labelContent}</span></div>`,
+          iconSize: s.isReference ? [34, 34] : [28, 28],
+          iconAnchor: s.isReference ? [6, 34] : [4, 28],
           popupAnchor: [10, -26],
         }),
       })
         .bindPopup(
           `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;min-width:180px;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              ${
+                s.isReference
+                  ? '<span style="background:#fbbf24;color:#000;padding:1px 6px;border-radius:4px;font-weight:bold;font-size:10px;">🎯 NOTA REFERÊNCIA</span>'
+                  : s.proximityStatus === "perto"
+                  ? '<span style="background:#10b981;color:#fff;padding:1px 6px;border-radius:4px;font-weight:bold;font-size:10px;">🟢 PERTO</span>'
+                  : s.proximityStatus === "longe"
+                  ? '<span style="background:#ef4444;color:#fff;padding:1px 6px;border-radius:4px;font-weight:bold;font-size:10px;">🔴 LONGE</span>'
+                  : ""
+              }
+            </div>
             <b style="font-size:13px;color:#0f172a;">${s.title}</b>
             ${s.subtitle ? `<br/><span style="color:#64748b;font-size:11px;">${s.subtitle}</span>` : ""}
             ${
@@ -138,35 +158,31 @@ export default function DeliveryMap({
         lineJoin: "round",
       }).addTo(g);
 
-      // Linha principal corporativa da rota estratégica
+      // Linha principal de trajeto
       L.polyline(latlngs, {
         color: "#2563eb",
         weight: 3.5,
-        opacity: 0.95,
+        dashArray: "6, 8",
         lineCap: "round",
         lineJoin: "round",
-        dashArray: "8 4",
       }).addTo(g);
     }
 
     if (validStops.length) {
-      const b = L.latLngBounds([
+      const bounds = L.latLngBounds([
         [DEPOT.lat, DEPOT.lng],
         ...validStops.map((s) => [Number(s.lat), Number(s.lng)] as [number, number]),
       ]);
-      if (b.isValid()) {
-        m.fitBounds(b, { padding: [45, 45], maxZoom: 15, animate: false });
-      }
+      m.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
     }
   }, [stops, showRoute, onSelect]);
 
   useEffect(() => {
-    if (selectedId && markers.current[selectedId]) {
-      const mk = markers.current[selectedId];
-      map.current?.setView(mk.getLatLng(), Math.max(map.current.getZoom(), 14), { animate: false });
-      mk.openPopup();
-    }
+    if (!selectedId || !markers.current[selectedId] || !map.current) return;
+    const mk = markers.current[selectedId];
+    map.current.panTo(mk.getLatLng(), { animate: true });
+    mk.openPopup();
   }, [selectedId]);
 
-  return <div ref={el} className="h-full w-full" />;
+  return <div ref={el} className="h-full w-full" style={{ minHeight: "100%", background: "#f8fafc" }} />;
 }

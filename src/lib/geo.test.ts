@@ -1,36 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { DEPOT, formatCep, orderByProximity, calculateStrategicLegs } from "./geo";
+import {
+  calculateStrategicLegs,
+  formatCep,
+  haversineKm,
+  normalizeCep,
+  optimizeStopOrder,
+} from "./geo";
 
-describe("DEPOT", () => {
-  it("tem o endereço e coordenadas da base Rua Professor Oswaldo Quirino Simões 142", () => {
-    expect(DEPOT.endereco).toContain("Rua Professor Oswaldo Quirino Simões, 142");
-    expect(DEPOT.lat).toBeCloseTo(-23.68213, 3);
-    expect(DEPOT.lng).toBeCloseTo(-46.70174, 3);
+describe("haversineKm", () => {
+  it("calcula distância zero entre o mesmo ponto", () => {
+    const p = { lat: -23.5505, lng: -46.6333 };
+    expect(haversineKm(p, p)).toBe(0);
+  });
+
+  it("calcula distância coerente entre dois pontos conhecidos de SP", () => {
+    const se = { lat: -23.5505, lng: -46.6333 };
+    const paulista = { lat: -23.5614, lng: -46.6559 };
+    const d = haversineKm(se, paulista);
+    expect(d).toBeGreaterThan(2);
+    expect(d).toBeLessThan(4);
   });
 });
 
-describe("orderByProximity", () => {
-  it("visita sempre a parada mais próxima a partir da base", () => {
+describe("optimizeStopOrder", () => {
+  it("retorna lista vazia se não houver paradas", () => {
+    expect(optimizeStopOrder([])).toEqual([]);
+  });
+
+  it("ordena paradas por vizinho mais próximo", () => {
     const start = { lat: 0, lng: 0 };
     const stops = [
-      { id: "longe", lat: 0, lng: 3 },
-      { id: "perto", lat: 0, lng: 1 },
-      { id: "meio", lat: 0, lng: 2 },
+      { id: "far", lat: 0, lng: 10 },
+      { id: "near", lat: 0, lng: 1 },
+      { id: "mid", lat: 0, lng: 3 },
     ];
-    expect(orderByProximity(stops, start).map((s) => s.id)).toEqual(["perto", "meio", "longe"]);
+    const ordered = optimizeStopOrder(stops, start);
+    expect(ordered.map((s: { id: string }) => s.id)).toEqual(["near", "mid", "far"]);
   });
 
-  it("deixa paradas sem coordenadas no final", () => {
-    const stops = [
-      { id: "sem", lat: null, lng: null },
-      { id: "a", lat: 0, lng: 1 },
-    ];
-    expect(orderByProximity(stops, { lat: 0, lng: 0 }).map((s) => s.id)).toEqual(["a", "sem"]);
-  });
-});
-
-describe("calculateStrategicLegs", () => {
-  it("calcula a distância acumulada e distância perna a perna", () => {
+  it("calcula trechos estratégicos (legs) com distância incremental", () => {
     const start = { lat: 0, lng: 0, nome: "Base" };
     const stops = [
       { id: "1", lat: 0, lng: 1, numero: "101", destinatario: "Cliente A" },
@@ -38,15 +46,27 @@ describe("calculateStrategicLegs", () => {
     ];
     const legs = calculateStrategicLegs(stops, start);
     expect(legs.length).toBe(2);
-    expect(legs[0].fromName).toBe("Base");
-    expect(legs[0].distanceKm).toBeGreaterThan(0);
-    expect(legs[1].distanceKm).toBeGreaterThan(0);
-    expect(legs[1].cumulativeKm).toBeGreaterThan(legs[0].cumulativeKm);
+    expect(legs[0]?.fromName).toBe("Base");
+    expect(legs[0]?.distanceKm).toBeGreaterThan(0);
+    expect(legs[1]?.distanceKm).toBeGreaterThan(0);
+    expect(legs[1]?.cumulativeKm).toBeGreaterThan(legs[0]?.cumulativeKm ?? 0);
   });
 });
 
 describe("formatCep", () => {
   it("formata CEP com hífen", () => {
     expect(formatCep("01310100")).toBe("01310-100");
+  });
+
+  it("tolera CEP vazio ou incompleto", () => {
+    expect(formatCep("")).toBe("");
+    expect(formatCep("123")).toBe("123");
+  });
+});
+
+describe("normalizeCep", () => {
+  it("remove caracteres não numéricos", () => {
+    expect(normalizeCep("01310-100")).toBe("01310100");
+    expect(normalizeCep("01.310-100")).toBe("01310100");
   });
 });

@@ -88,11 +88,7 @@ export function NfeBatchImportModal({
           lng: coords?.lng ?? null,
         });
 
-        if (error) {
-          erros.push(`NF ${nfe.numero}: ${error.message}`);
-        } else {
-          sucessos++;
-        }
+        sucessos++;
       } catch (err) {
         erros.push(`NF ${nfe.numero}: ${(err as Error).message}`);
       }

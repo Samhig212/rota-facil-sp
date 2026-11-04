@@ -48,15 +48,10 @@ export function haversineKm(a: LatLng, b: LatLng) {
   const h =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(Number(a.lat))) * Math.cos(toRad(Number(b.lat))) * Math.sin(dLng / 2) ** 2;
-  const clampedH = Math.min(1, Math.max(0, h));
-  return 2 * R * Math.asin(Math.sqrt(clampedH));
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/**
- * Ordena paradas por rota estratégica (vizinho mais próximo sucessivo) a partir de `start` (Base).
- * A 1ª parada é a mais próxima da Base; a 2ª é a mais próxima da 1ª; e assim por diante.
- * Paradas sem coordenadas vão para o final, na ordem original.
- */
+/** Ordenação gananciosa pela parada mais próxima (Nearest-Neighbor). */
 export function orderByProximity<T extends { lat: number | null; lng: number | null }>(
   stops: T[],
   start: LatLng = DEPOT,
@@ -89,6 +84,8 @@ export function orderByProximity<T extends { lat: number | null; lng: number | n
   return [...result, ...without];
 }
 
+export const optimizeStopOrder = orderByProximity;
+
 export type RouteLeg = {
   legIndex: number;
   fromName: string;
@@ -105,12 +102,12 @@ export function calculateStrategicLegs<
   T extends {
     lat: number | null;
     lng: number | null;
-    destinatario?: string;
-    numero?: string;
+    destinatario?: string | undefined;
+    numero?: string | undefined;
   },
 >(
   stops: T[],
-  start: LatLng & { nome?: string } = DEPOT,
+  start: LatLng & { nome?: string | undefined } = DEPOT,
 ): RouteLeg[] {
   const validStops = stops.filter((s) => s.lat != null && s.lng != null);
   let cur: LatLng = { lat: start.lat, lng: start.lng };
@@ -184,10 +181,10 @@ async function nominatim(params: Record<string, string>): Promise<LatLng | null>
 /** Geocodifica um endereço via OpenStreetMap, com fallback progressivo. */
 export async function geocode(info: {
   cep: string;
-  logradouro?: string;
-  numero?: string;
-  bairro?: string;
-  cidade?: string;
+  logradouro?: string | undefined;
+  numero?: string | undefined;
+  bairro?: string | undefined;
+  cidade?: string | undefined;
 }): Promise<LatLng | null> {
   const cidade = info.cidade || "São Paulo";
   if (info.logradouro) {

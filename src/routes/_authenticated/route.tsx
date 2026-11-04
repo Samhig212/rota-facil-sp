@@ -1,5 +1,8 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import {
+  AlertTriangle,
   ClipboardCheck,
   FileText,
   LogOut,
@@ -7,11 +10,13 @@ import {
   MapPin,
   Route as RouteIcon,
   Truck,
-  Users,
+  Wrench,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { vehiclesQuery } from "@/lib/fleet";
+import { getAllMaintenanceAlerts, useVehicleMaintenance } from "@/lib/vehicle-maintenance";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -32,12 +37,20 @@ const NAV = [
   { to: "/notas", label: "Lançar NF-e", icon: FileText },
   { to: "/despacho", label: "Despacho & Rota", icon: RouteIcon },
   { to: "/fechamento", label: "Fechamento", icon: ClipboardCheck },
-  { to: "/cadastros", label: "Frota & Motoristas", icon: Users },
+  { to: "/cadastros", label: "Frota & Manutenção", icon: Wrench, hasAlerts: true },
 ] as const;
 
 function Shell() {
   const { user } = Route.useRouteContext();
   const navigate = useNavigate();
+
+  const { data: vehicles } = useQuery(vehiclesQuery);
+  const { records } = useVehicleMaintenance();
+
+  const maintenanceAlerts = useMemo(() => {
+    if (!vehicles || vehicles.length === 0) return { urgentCount: 0, warningCount: 0, totalCount: 0 };
+    return getAllMaintenanceAlerts(vehicles);
+  }, [vehicles, records]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground md:flex-row">
@@ -52,6 +65,16 @@ function Shell() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {maintenanceAlerts.urgentCount > 0 && (
+            <Link
+              to="/cadastros"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold animate-pulse"
+              title={`${maintenanceAlerts.urgentCount} manutenção(ões) vencida(s)`}
+            >
+              <AlertTriangle size={12} />
+              <span>{maintenanceAlerts.urgentCount}</span>
+            </Link>
+          )}
           <ThemeToggle />
           <Button
             variant="ghost"
@@ -80,9 +103,6 @@ function Shell() {
               RotaFacil <span className="text-sidebar-primary font-black">SP</span>
             </span>
           </div>
-          <span className="text-[10px] uppercase font-mono tracking-wider px-2 py-0.5 rounded-full bg-sidebar-primary/15 text-sidebar-primary font-bold border border-sidebar-primary/25">
-            Pro
-          </span>
         </div>
 
         {/* Linha de destaque corporativo */}
@@ -105,14 +125,28 @@ function Shell() {
             <Link
               key={n.to}
               to={n.to}
-              className="group flex items-center gap-3 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:translate-x-0.5 active:scale-98"
+              className="group flex items-center justify-between whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:translate-x-0.5 active:scale-98"
               activeProps={{
                 className:
                   "bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-md shadow-blue-500/25 hover:from-blue-600 hover:to-indigo-600 hover:text-white",
               }}
             >
-              <n.icon size={18} className="transition-transform duration-200 group-hover:scale-110" />
-              <span>{n.label}</span>
+              <div className="flex items-center gap-3">
+                <n.icon size={18} className="transition-transform duration-200 group-hover:scale-110" />
+                <span>{n.label}</span>
+              </div>
+              {"hasAlerts" in n && maintenanceAlerts.totalCount > 0 && (
+                <span
+                  className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full ${
+                    maintenanceAlerts.urgentCount > 0
+                      ? "bg-rose-500 text-white animate-pulse"
+                      : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  }`}
+                  title={`${maintenanceAlerts.totalCount} alertas de manutenção/vistoria`}
+                >
+                  {maintenanceAlerts.urgentCount > 0 ? `! ${maintenanceAlerts.urgentCount}` : maintenanceAlerts.totalCount}
+                </span>
+              )}
             </Link>
           ))}
         </nav>

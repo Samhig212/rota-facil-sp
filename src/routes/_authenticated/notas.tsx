@@ -1,32 +1,41 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Boxes,
   CheckCircle2,
   Clock,
   DollarSign,
+  FileCheck2,
   FileText,
   Filter,
+  FolderOpen,
   Loader2,
   PackageCheck,
   RotateCcw,
   Search,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader, StatusBadge } from "@/components/fleet-ui";
 import { NfeBatchImportModal } from "@/components/NfeBatchImportModal";
 import { NfeXmlDropzone } from "@/components/NfeXmlDropzone";
+import { InvoiceDocumentsModal } from "@/components/InvoiceDocumentsModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { brl, invoicesQuery } from "@/lib/fleet";
+import { brl, invoicesQuery, type Invoice } from "@/lib/fleet";
 import { formatCep, geocode, lookupCep, normalizeCep } from "@/lib/geo";
 import type { ParsedNfe } from "@/lib/nfe-parser";
+import {
+  addInvoiceDocument,
+  useInvoiceDocuments,
+  type DocumentType,
+} from "@/lib/invoice-documents";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/notas")({
@@ -68,12 +77,24 @@ function NotasPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("todas");
 
+  // Documentos e Digitalização do Material (PDF / Pasta)
+  const { docs: allDocs } = useInvoiceDocuments();
+  const [selectedInvoiceForDocs, setSelectedInvoiceForDocs] = useState<Invoice | null>(null);
+  const [pdfFile, setPdfFile] = useState<{ name: string; size: number; dataUrl: string } | null>(null);
+  const [folderPath, setFolderPath] = useState("");
+  const [docType, setDocType] = useState<DocumentType>("danfe");
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+
   const set = (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
 
   function resetForm() {
     setF(EMPTY);
     setLoadedXmlName(null);
+    setPdfFile(null);
+    setFolderPath("");
+    setDocType("danfe");
+    if (pdfInputRef.current) pdfInputRef.current.value = "";
   }
 
   // Bento Metrics
@@ -185,7 +206,7 @@ function NotasPage() {
         bairro: f.bairro,
         cidade: f.cidade,
       });
-      await api.invoices.create({
+      const created = await api.invoices.create({
         numero: f.numero,
         serie: f.serie,
         chave,
@@ -200,11 +221,25 @@ function NotasPage() {
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
       });
-      // saved
+
+      // Se houver PDF anexado ou caminho de pasta informado, digitaliza o material
+      const targetInvoiceId = created?.id || f.numero;
+      if (pdfFile || folderPath.trim()) {
+        addInvoiceDocument({
+          invoiceId: targetInvoiceId,
+          tipo: docType,
+          nomeArquivo: pdfFile?.name || (folderPath ? folderPath.split(/[/\\]/).pop() || `DANFE_${f.numero}.pdf` : `DANFE_${f.numero}.pdf`),
+          urlData: pdfFile?.dataUrl || undefined,
+          caminhoPasta: folderPath.trim() || undefined,
+          tamanhoBytes: pdfFile?.size ?? undefined,
+          observacoes: "Digitalizado no cadastro da nota fiscal",
+        });
+      }
+
       toast.success(
         coords
-          ? `NF ${f.numero} lançada e localizada no mapa`
-          : `NF ${f.numero} lançada (endereço não localizado no mapa)`,
+          ? `NF ${f.numero} lançada com sucesso e localizada no mapa!`
+          : `NF ${f.numero} lançada (endereço não localizado com precisão no mapa)`,
       );
       resetForm();
       qc.invalidateQueries({ queryKey: ["invoices"] });
@@ -216,20 +251,20 @@ function NotasPage() {
   }
 
   async function excluir(id: string) {
-    try { await api.invoices.delete(id); } catch (e: any) { toast.error(e.message); return; }
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      await api.invoices.delete(id);
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      toast.success("Nota fiscal removida com sucesso");
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao remover nota fiscal");
     }
-    qc.invalidateQueries({ queryKey: ["invoices"] });
-    toast.success("Nota fiscal removida com sucesso");
   }
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in-50 duration-300">
       <PageHeader
         title="Lançamento de NF-e"
-        subtitle="Entrada de notas fiscais por leitura de XML ou cadastro manual"
+        subtitle="Entrada de notas fiscais por leitura de XML, cadastro manual e digitalização de material em PDF"
         badge={
           <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-xs font-bold text-primary">
             <Sparkles size={12} /> Bento View
@@ -273,22 +308,22 @@ function NotasPage() {
               </div>
             </div>
             <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-xl sm:text-2xl font-black font-mono tracking-tight text-foreground">
+              <span className="text-2xl sm:text-3xl font-black tracking-tight text-foreground font-mono">
                 {brl(stats.totalValor)}
               </span>
             </div>
-            <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
-              <span>Média de {stats.total > 0 ? brl(stats.totalValor / stats.total) : "R$ 0,00"} por nota</span>
+            <div className="mt-2 text-[11px] text-muted-foreground">
+              Soma total das mercadorias registradas
             </div>
           </div>
 
-          {/* Card 3: Total Volumes */}
+          {/* Card 3: Volumes Físicos */}
           <div className="group relative overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/40">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Volumes Físicos
               </span>
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/15 text-sky-600 dark:text-sky-400 transition-transform duration-200 group-hover:scale-110">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 transition-transform duration-200 group-hover:scale-110">
                 <Boxes size={18} />
               </div>
             </div>
@@ -296,20 +331,20 @@ function NotasPage() {
               <span className="text-2xl sm:text-3xl font-black tracking-tight text-foreground">
                 {stats.totalVolumes}
               </span>
-              <span className="text-xs text-muted-foreground font-medium">unidades</span>
+              <span className="text-xs text-muted-foreground font-medium">volumes totais</span>
             </div>
-            <div className="mt-2 text-[11px] text-muted-foreground">
-              Espaço de ocupação calculado
+            <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <span>{stats.emRota} em trânsito com motoristas</span>
             </div>
           </div>
 
-          {/* Card 4: Entregas Concluídas */}
+          {/* Card 4: Taxa de Entrega */}
           <div className="group relative overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/40">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Taxa de Conclusão
+                Taxa de Sucesso
               </span>
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/15 text-violet-600 dark:text-violet-400 transition-transform duration-200 group-hover:scale-110">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 transition-transform duration-200 group-hover:scale-110">
                 <PackageCheck size={18} />
               </div>
             </div>
@@ -317,50 +352,45 @@ function NotasPage() {
               <span className="text-2xl sm:text-3xl font-black tracking-tight text-foreground">
                 {stats.taxaEntrega}%
               </span>
-              <span className="text-xs text-muted-foreground font-medium">entregues</span>
+              <span className="text-xs text-muted-foreground font-medium">
+                ({stats.entregues} entregues)
+              </span>
             </div>
-            <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-blue-600 to-emerald-500 transition-all duration-500"
-                style={{ width: `${stats.taxaEntrega}%` }}
-              />
+            <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-2">
+              {stats.devolvidas > 0 ? (
+                <span className="text-destructive font-semibold">
+                  {stats.devolvidas} devoluções registradas
+                </span>
+              ) : (
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                  Nenhuma devolução
+                </span>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Bento Grid Principal: Formulário + Lista de Notas */}
-        <div className="grid gap-6 xl:grid-cols-[460px_1fr]">
-          {/* Bento Card: Formulário & Dropzone */}
-          <div className="space-y-4">
-            <form
-              onSubmit={salvar}
-              className="space-y-4 rounded-2xl border border-border/70 bg-card/90 p-5 sm:p-6 shadow-sm backdrop-blur-xs transition-all duration-200 hover:border-border"
-            >
-              <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                <div>
-                  <h2 className="text-base font-extrabold tracking-tight text-foreground">
-                    Cadastro de Entrega
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Carregue o XML para autopreenchimento rápido
-                  </p>
-                </div>
-                {loadedXmlName && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground rounded-lg"
-                    onClick={resetForm}
-                  >
-                    <RotateCcw className="h-3 w-3 mr-1" />
-                    Resetar
-                  </Button>
-                )}
-              </div>
+        {/* Bento Grid Principal: Form Lançamento + Tabela de Notas */}
+        <div className="grid gap-6 lg:grid-cols-[460px_1fr]">
+          {/* Bento Card: Formulário com Dropzone XML e Digitalização */}
+          <div className="flex flex-col rounded-2xl border border-border/70 bg-card/90 shadow-sm backdrop-blur-xs overflow-hidden">
+            <div className="border-b border-border/60 p-5 bg-muted/20">
+              <h2 className="text-base font-extrabold tracking-tight text-foreground flex items-center gap-2">
+                <FileText size={18} className="text-primary" />
+                Entrada de Notas Fiscais
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Importe arquivos XML da SEFAZ, anexe PDF ou preencha manualmente
+              </p>
+            </div>
 
-              {/* Área de Drag & Drop XML */}
-              <div className="space-y-2">
+            <form onSubmit={salvar} className="p-5 space-y-4">
+              {/* Leitor de XML SEFAZ */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-primary" />
+                  Importação Rápida por XML (Unitário ou em Lote)
+                </Label>
                 <NfeXmlDropzone
                   onSingleNfe={handleSingleNfe}
                   onMultipleNfe={handleMultipleNfes}
@@ -369,12 +399,10 @@ function NotasPage() {
               </div>
 
               {loadedXmlName && (
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/40 bg-primary/10 p-3 text-xs animate-in fade-in-50 duration-200">
-                  <div className="flex items-center gap-2 text-foreground min-w-0">
-                    <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
-                    <span className="truncate">
-                      Preenchido via XML: <strong>NF {f.numero}</strong> ({loadedXmlName})
-                    </span>
+                <div className="flex items-center justify-between rounded-xl bg-primary/10 border border-primary/20 px-3 py-2 text-xs text-primary">
+                  <div className="flex items-center gap-2 truncate">
+                    <CheckCircle2 size={15} className="shrink-0 text-primary" />
+                    <span className="font-semibold truncate">Dados do XML: {loadedXmlName}</span>
                   </div>
                   <Button
                     type="button"
@@ -399,10 +427,10 @@ function NotasPage() {
                 </div>
               </div>
 
-              {/* Campos do formulário com cantos arredondados e transições */}
+              {/* Campos do formulário */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2 space-y-1.5">
-                  <Label className="text-xs font-semibold">Número NF</Label>
+                  <Label className="text-xs font-semibold">Número NF *</Label>
                   <Input
                     required
                     value={f.numero}
@@ -434,7 +462,7 @@ function NotasPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Destinatário</Label>
+                <Label className="text-xs font-semibold">Destinatário *</Label>
                 <Input
                   required
                   value={f.destinatario}
@@ -445,7 +473,7 @@ function NotasPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">CEP</Label>
+                <Label className="text-xs font-semibold">CEP *</Label>
                 <div className="flex gap-2">
                   <Input
                     required
@@ -536,6 +564,110 @@ function NotasPage() {
                 </div>
               </div>
 
+              {/* Seção: Digitalização do Material (PDF / Pasta do Sistema) */}
+              <div className="rounded-xl border border-border/70 p-3.5 bg-muted/15 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className="text-primary" size={15} />
+                    <Label className="text-xs font-bold text-foreground">
+                      Digitalização do Material (PDF / Pasta)
+                    </Label>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground font-medium">Opcional</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">Tipo de Documento</Label>
+                    <select
+                      value={docType}
+                      onChange={(e) => setDocType(e.target.value as DocumentType)}
+                      className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                    >
+                      <option value="danfe">DANFE / NF-e</option>
+                      <option value="romaneio">Romaneio de Carga</option>
+                      <option value="canhoto">Canhoto de Entrega</option>
+                      <option value="comprovante">Comprovante</option>
+                      <option value="outro">Outro PDF</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">Arquivo PDF</Label>
+                    <input
+                      type="file"
+                      ref={pdfInputRef}
+                      accept="application/pdf,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.type !== "application/pdf" && !file.type.startsWith("image/")) {
+                          toast.error("Selecione um arquivo PDF ou imagem");
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const result = ev.target?.result as string;
+                          setPdfFile({
+                            name: file.name,
+                            size: file.size,
+                            dataUrl: result,
+                          });
+                          toast.success(`Arquivo ${file.name} pronto para anexar!`);
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full h-8 rounded-xl text-xs gap-1.5 justify-center"
+                      onClick={() => pdfInputRef.current?.click()}
+                    >
+                      <Upload size={12} /> {pdfFile ? "Trocar PDF" : "Anexar PDF"}
+                    </Button>
+                  </div>
+                </div>
+
+                {pdfFile && (
+                  <div className="flex items-center justify-between rounded-lg bg-card p-2 border border-border text-xs">
+                    <div className="flex items-center gap-2 truncate">
+                      <FileCheck2 className="text-emerald-500 shrink-0" size={14} />
+                      <span className="truncate font-medium">{pdfFile.name}</span>
+                      <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                        ({Math.round(pdfFile.size / 1024)} KB)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPdfFile(null);
+                        if (pdfInputRef.current) pdfInputRef.current.value = "";
+                      }}
+                      className="text-muted-foreground hover:text-destructive p-1 rounded"
+                      title="Remover anexo"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Campo para Vincular Caminho da Pasta no Sistema/Rede */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <FolderOpen size={12} /> Ou vincule caminho de pasta física/rede (Windows)
+                  </Label>
+                  <Input
+                    placeholder="Ex: C:\NotasFiscais\NF_123.pdf ou \\servidor\nfe\"
+                    value={folderPath}
+                    onChange={(e) => setFolderPath(e.target.value)}
+                    className="text-xs rounded-xl font-mono"
+                  />
+                </div>
+              </div>
+
               <Button
                 type="submit"
                 disabled={saving}
@@ -563,23 +695,21 @@ function NotasPage() {
                     <button
                       type="button"
                       onClick={() => setSearchTerm("")}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       <X size={14} />
                     </button>
                   )}
                 </div>
 
-                <div className="text-xs font-semibold text-muted-foreground self-center">
-                  Exibindo <strong>{filteredInvoices.length}</strong> de {invoices.length} notas
+                <div className="text-xs text-muted-foreground text-right font-medium shrink-0">
+                  Mostrando <strong className="text-foreground">{filteredInvoices.length}</strong> de{" "}
+                  {invoices.length} notas
                 </div>
               </div>
 
-              {/* Filtros em Pílulas (Pills) */}
+              {/* Pílulas de filtro de status */}
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mr-1 flex items-center gap-1">
-                  <Filter size={12} /> Status:
-                </span>
                 {[
                   { id: "todas", label: "Todas", count: invoices.length },
                   { id: "pendente", label: "Pendentes", count: stats.pendentes },
@@ -592,10 +722,10 @@ function NotasPage() {
                     type="button"
                     onClick={() => setStatusFilter(pill.id)}
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-all duration-200 active:scale-95",
+                      "flex items-center gap-1.5 rounded-xl px-3 py-1 text-xs font-semibold transition-all duration-200",
                       statusFilter === pill.id
-                        ? "bg-primary text-primary-foreground shadow-xs font-bold"
-                        : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+                        ? "bg-primary text-primary-foreground shadow-xs"
+                        : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     <span>{pill.label}</span>
@@ -625,7 +755,7 @@ function NotasPage() {
                     <th className="p-3.5 text-right">Valor</th>
                     <th className="p-3.5 text-center">Vol.</th>
                     <th className="p-3.5">Status</th>
-                    <th className="p-3.5 pr-5 text-right">Ação</th>
+                    <th className="p-3.5 pr-5 text-right">Ação & Documentos</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -644,58 +774,89 @@ function NotasPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredInvoices.map((i) => (
-                      <tr
-                        key={i.id}
-                        className="group transition-colors duration-150 hover:bg-muted/40"
-                      >
-                        <td className="p-3.5 pl-5 font-mono font-bold text-foreground">
-                          {i.numero}
-                          <span className="text-muted-foreground font-normal text-xs">
-                            /{i.serie}
-                          </span>
-                        </td>
-                        <td className="p-3.5 max-w-[240px]">
-                          <div className="font-semibold text-foreground truncate" title={i.destinatario}>
-                            {i.destinatario}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate" title={`${i.logradouro}, ${i.numero_endereco} - ${i.bairro}, ${i.cidade}`}>
-                            {i.logradouro}, {i.numero_endereco} · {i.bairro}
-                          </div>
-                        </td>
-                        <td className="p-3.5 font-mono text-xs text-muted-foreground">
-                          {formatCep(i.cep)}
-                        </td>
-                        <td className="p-3.5 text-right font-mono font-bold text-foreground">
-                          {brl(Number(i.valor))}
-                        </td>
-                        <td className="p-3.5 text-center font-mono text-xs">
-                          {i.volumes}
-                        </td>
-                        <td className="p-3.5">
-                          <StatusBadge status={i.status} />
-                          {i.motivo_devolucao && (
-                            <div className="mt-1 text-[11px] text-destructive truncate max-w-[140px]" title={i.motivo_devolucao}>
-                              {i.motivo_devolucao}
+                    filteredInvoices.map((i) => {
+                      const docCount = allDocs.filter(
+                        (d) => d.invoiceId === i.id || d.invoiceId === i.numero,
+                      ).length;
+                      const hasDocs = docCount > 0;
+
+                      return (
+                        <tr
+                          key={i.id}
+                          className="group transition-colors duration-150 hover:bg-muted/40"
+                        >
+                          <td className="p-3.5 pl-5 font-mono font-bold text-foreground">
+                            {i.numero}
+                            <span className="text-muted-foreground font-normal text-xs">
+                              /{i.serie}
+                            </span>
+                          </td>
+                          <td className="p-3.5 max-w-[240px]">
+                            <div className="font-semibold text-foreground truncate" title={i.destinatario}>
+                              {i.destinatario}
                             </div>
-                          )}
-                        </td>
-                        <td className="p-3.5 pr-5 text-right">
-                          {i.status === "pendente" && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                              onClick={() => excluir(i.id)}
-                              aria-label={`Excluir nota ${i.numero}`}
-                              title="Excluir nota"
-                            >
-                              <Trash2 size={15} />
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                            <div className="text-xs text-muted-foreground truncate" title={`${i.logradouro}, ${i.numero_endereco} - ${i.bairro}, ${i.cidade}`}>
+                              {i.logradouro}, {i.numero_endereco} · {i.bairro}
+                            </div>
+                          </td>
+                          <td className="p-3.5 font-mono text-xs text-muted-foreground">
+                            {formatCep(i.cep)}
+                          </td>
+                          <td className="p-3.5 text-right font-mono font-bold text-foreground">
+                            {brl(Number(i.valor))}
+                          </td>
+                          <td className="p-3.5 text-center font-mono text-xs">
+                            {i.volumes}
+                          </td>
+                          <td className="p-3.5">
+                            <StatusBadge status={i.status} />
+                            {i.motivo_devolucao && (
+                              <div className="mt-1 text-[11px] text-destructive truncate max-w-[140px]" title={i.motivo_devolucao}>
+                                {i.motivo_devolucao}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3.5 pr-5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className={cn(
+                                  "h-8 px-2 text-xs rounded-xl gap-1 transition-colors",
+                                  hasDocs
+                                    ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+                                )}
+                                onClick={() => setSelectedInvoiceForDocs(i)}
+                                title={
+                                  hasDocs
+                                    ? `${docCount} documento(s) anexado(s) - clique para visualizar`
+                                    : "Digitalizar material / anexar PDF ou pasta"
+                                }
+                              >
+                                <FolderOpen size={13} />
+                                <span className="hidden sm:inline">
+                                  {hasDocs ? `${docCount} PDF${docCount > 1 ? "s" : ""}` : "Digitalizar"}
+                                </span>
+                              </Button>
+
+                              {i.status === "pendente" && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                  onClick={() => excluir(i.id)}
+                                  aria-label={`Excluir nota ${i.numero}`}
+                                  title="Excluir nota"
+                                >
+                                  <Trash2 size={15} />
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -704,13 +865,20 @@ function NotasPage() {
         </div>
       </div>
 
-      {/* Modal de importação de lote */}
+      {/* Modal de importação de lote XML */}
       <NfeBatchImportModal
         isOpen={batchModalOpen}
         onClose={() => setBatchModalOpen(false)}
         nfes={batchNfes}
         onSelectNfeForForm={(nfe) => handleSingleNfe(nfe, nfe.rawFileName || `NF ${nfe.numero}`)}
         onSuccess={() => qc.invalidateQueries({ queryKey: ["invoices"] })}
+      />
+
+      {/* Modal de Documentos Digitalizados (PDF / Pasta) */}
+      <InvoiceDocumentsModal
+        isOpen={Boolean(selectedInvoiceForDocs)}
+        onClose={() => setSelectedInvoiceForDocs(null)}
+        invoice={selectedInvoiceForDocs}
       />
     </div>
   );

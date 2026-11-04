@@ -4,7 +4,7 @@
  */
 
 export const API_BASE_URL = (
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
+  (typeof import.meta !== "undefined" && import.meta.env?.["VITE_API_URL"]) ||
   "http://localhost:5000"
 ).replace(/\/$/, "");
 
@@ -58,24 +58,26 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 export const api = {
   get: <T>(endpoint: string, options?: RequestInit) =>
-    request<T>(endpoint, { method: "GET", ...options }),
+    request<T>(endpoint, { method: "GET", ...(options || {}) }),
 
-  post: <T>(endpoint: string, body?: unknown, options?: RequestInit) =>
-    request<T>(endpoint, {
-      method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
-      ...options,
-    }),
+  post: <T>(endpoint: string, body?: unknown, options?: RequestInit) => {
+    const init: RequestInit = { method: "POST", ...(options || {}) };
+    if (body !== undefined) {
+      init.body = JSON.stringify(body);
+    }
+    return request<T>(endpoint, init);
+  },
 
-  patch: <T>(endpoint: string, body?: unknown, options?: RequestInit) =>
-    request<T>(endpoint, {
-      method: "PATCH",
-      body: body ? JSON.stringify(body) : undefined,
-      ...options,
-    }),
+  patch: <T>(endpoint: string, body?: unknown, options?: RequestInit) => {
+    const init: RequestInit = { method: "PATCH", ...(options || {}) };
+    if (body !== undefined) {
+      init.body = JSON.stringify(body);
+    }
+    return request<T>(endpoint, init);
+  },
 
   delete: <T>(endpoint: string, options?: RequestInit) =>
-    request<T>(endpoint, { method: "DELETE", ...options }),
+    request<T>(endpoint, { method: "DELETE", ...(options || {}) }),
 
   // Módulo de Autenticação
   auth: {
@@ -118,7 +120,7 @@ export const api = {
   // Módulo de Veículos
   vehicles: {
     list: () => api.get<any[]>("/api/vehicles"),
-    create: (data: { placa: string; modelo?: string; km_atual?: number }) =>
+    create: (data: { placa: string; modelo?: string | undefined; km_atual?: number | undefined }) =>
       api.post<any>("/api/vehicles", data),
     update: (id: string, data: Partial<{ placa: string; modelo: string; km_atual: number; ativo: boolean }>) =>
       api.patch<any>(`/api/vehicles/${id}`, data),
@@ -129,12 +131,12 @@ export const api = {
     list: () => api.get<any[]>("/api/drivers"),
     create: (data: {
       nome: string;
-      cnh?: string;
-      telefone?: string;
-      foto?: string;
-      cnh_foto?: string;
-      cnh_categoria?: string;
-      cnh_validade?: string;
+      cnh?: string | undefined;
+      telefone?: string | undefined;
+      foto?: string | undefined;
+      cnh_foto?: string | undefined;
+      cnh_categoria?: string | undefined;
+      cnh_validade?: string | undefined;
     }) => api.post<any>("/api/drivers", data),
     update: (id: string, data: Record<string, any>) =>
       api.patch<any>(`/api/drivers/${id}`, data),
@@ -152,10 +154,9 @@ export const api = {
   // Módulo de Rotas
   routes: {
     list: () => api.get<any[]>("/api/routes"),
-    create: (data: { vehicle_id: string; driver_id: string; km_inicial?: number }) =>
+    create: (data: { vehicle_id: string; driver_id: string; km_inicial?: number | undefined }) =>
       api.post<any>("/api/routes", data),
     close: (id: string, km_final: number) =>
       api.post<any>(`/api/routes/${id}/close`, { km_final }),
   },
 };
-
