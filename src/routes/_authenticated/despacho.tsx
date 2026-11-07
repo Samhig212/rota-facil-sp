@@ -18,7 +18,7 @@ import {
   UserCheck,
   Zap,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ensureAdminAuthorization } from "@/lib/api";
 import { LazyMap, type MapStop } from "@/components/LazyMap";
 import { PageHeader } from "@/components/fleet-ui";
 import { Button } from "@/components/ui/button";
@@ -302,6 +302,10 @@ function DespachoPage() {
       toast.error("Selecione ao menos uma nota");
       return;
     }
+
+    const authorized = await ensureAdminAuthorization("despachar esta rota de entrega");
+    if (!authorized) return;
+
     setSaving(true);
     try {
       const route = await api.routes.create({

@@ -20,7 +20,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ensureAdminAuthorization } from "@/lib/api";
 import { PageHeader, StatusBadge } from "@/components/fleet-ui";
 import { NfeBatchImportModal } from "@/components/NfeBatchImportModal";
 import { NfeXmlDropzone } from "@/components/NfeXmlDropzone";
@@ -197,6 +197,10 @@ function NotasPage() {
       toast.error("Informe um CEP válido");
       return;
     }
+
+    const authorized = await ensureAdminAuthorization("lançar esta nota fiscal");
+    if (!authorized) return;
+
     setSaving(true);
     try {
       const coords = await geocode({
@@ -251,6 +255,9 @@ function NotasPage() {
   }
 
   async function excluir(id: string) {
+    const authorized = await ensureAdminAuthorization("excluir esta nota fiscal");
+    if (!authorized) return;
+
     try {
       await api.invoices.delete(id);
       qc.invalidateQueries({ queryKey: ["invoices"] });

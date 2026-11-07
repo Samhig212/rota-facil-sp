@@ -3,7 +3,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Clock, FolderOpen, Lock, RotateCcw, Truck, Undo2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ensureAdminAuthorization } from "@/lib/api";
 import { PageHeader, Plate, StatusBadge } from "@/components/fleet-ui";
 import { InvoiceDocumentsModal } from "@/components/InvoiceDocumentsModal";
 import { Button } from "@/components/ui/button";
@@ -90,6 +90,10 @@ function FechamentoPage() {
       toast.error(`Informe o motivo da devolução da NF ${semMotivo.numero}`);
       return;
     }
+
+    const authorized = await ensureAdminAuthorization("fechar o turno da rota");
+    if (!authorized) return;
+
     setSaving(true);
     try {
       await Promise.all(

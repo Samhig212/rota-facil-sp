@@ -1,11 +1,12 @@
 import os
 import uuid
 import datetime
-import json
 import logging
+from functools import wraps
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+import werkzeug.security
 
 # Carrega variáveis de ambiente do .env se existir
 load_dotenv()
@@ -16,6 +17,9 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("RotaFacilAPI")
+
+# Token de Administrador configurável via .env para validação de modificações
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "ADMIN123")
 
 # ==============================================================================
 # CONFIGURAÇÃO DE BANCO DE DADOS (MySQL com Fallback Seguro para SQLite)
@@ -89,7 +93,6 @@ def execute_query(query, params=None, fetch="all"):
     try:
         cursor = conn.cursor()
         if engine == "sqlite":
-            # Converte marcadores %s do MySQL para ? do SQLite
             q_formatted = query.replace("%s", "?")
             cursor.execute(q_formatted, params or ())
             if fetch == "all":
@@ -112,8 +115,28 @@ def execute_query(query, params=None, fetch="all"):
     finally:
         conn.close()
 
+def ensure_column(cursor, engine, table, column, definition):
+    """Garante que a coluna exista na tabela, adicionando se necessário."""
+    try:
+        if engine == "sqlite":
+            cursor.execute(f"PRAGMA table_info({table})")
+            cols = [r["name"] if isinstance(r, dict) else r[1] for r in cursor.fetchall()]
+            if column not in cols:
+                logger.info(f"Adicionando coluna {column} na tabela {table} (SQLite)...")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        else:
+            cursor.execute("""
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s
+            """, (table, column))
+            if not cursor.fetchone():
+                logger.info(f"Adicionando coluna {column} na tabela {table} (MySQL)...")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except Exception as e:
+        logger.warning(f"Aviso ao verificar coluna {column} em {table}: {e}")
+
 def init_db():
-    """Cria as tabelas necessárias e popula dados iniciais da frota."""
+    """Cria as tabelas necessárias e executa migrações automáticas de schema."""
     conn, engine = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -126,6 +149,7 @@ def init_db():
             email VARCHAR(150) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
             nome VARCHAR(150) NOT NULL,
+            role VARCHAR(20) DEFAULT 'user',
             created_at TIMESTAMP DEFAULT {timestamp_default}
         )
         """)
@@ -137,6 +161,7 @@ def init_db():
             modelo VARCHAR(100) DEFAULT '',
             km_atual INT DEFAULT 0,
             ativo BOOLEAN DEFAULT 1,
+            user_id VARCHAR(36) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT {timestamp_default}
         )
         """)
@@ -152,6 +177,7 @@ def init_db():
             cnh_categoria VARCHAR(10) DEFAULT 'B',
             cnh_validade VARCHAR(30) DEFAULT '',
             ativo BOOLEAN DEFAULT 1,
+            user_id VARCHAR(36) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT {timestamp_default}
         )
         """)
@@ -166,6 +192,7 @@ def init_db():
             km_final INT DEFAULT NULL,
             status VARCHAR(20) DEFAULT 'aberta',
             closed_at TIMESTAMP DEFAULT NULL,
+            user_id VARCHAR(36) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT {timestamp_default}
         )
         """)
@@ -190,12 +217,33 @@ def init_db():
             motivo_devolucao TEXT,
             route_id VARCHAR(36) DEFAULT NULL,
             ordem INT DEFAULT NULL,
+            user_id VARCHAR(36) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT {timestamp_default}
         )
         """)
 
         if engine == "sqlite":
             conn.commit()
+
+        # Garante migração de colunas para bancos pré-existentes
+        ensure_column(cursor, engine, "users", "role", "VARCHAR(20) DEFAULT 'user'")
+        ensure_column(cursor, engine, "vehicles", "user_id", "VARCHAR(36) DEFAULT NULL")
+        ensure_column(cursor, engine, "drivers", "user_id", "VARCHAR(36) DEFAULT NULL")
+        ensure_column(cursor, engine, "routes", "user_id", "VARCHAR(36) DEFAULT NULL")
+        ensure_column(cursor, engine, "invoices", "user_id", "VARCHAR(36) DEFAULT NULL")
+
+        if engine == "sqlite":
+            conn.commit()
+
+        # Garante que o usuário gestor original tenha perfil de admin
+        try:
+            if engine == "sqlite":
+                cursor.execute("UPDATE users SET role = 'admin' WHERE email = 'operacao@rotafacil.com.br'")
+                conn.commit()
+            else:
+                cursor.execute("UPDATE users SET role = 'admin' WHERE email = 'operacao@rotafacil.com.br'")
+        except Exception as e:
+            logger.warning(f"Aviso ao atualizar role admin: {e}")
 
         # Seed inicial caso não existam veículos
         cursor.execute("SELECT COUNT(*) as cnt FROM vehicles")
@@ -253,24 +301,81 @@ def init_db():
                 execute_query("INSERT INTO drivers (id, nome, cnh, telefone, foto, cnh_foto, cnh_categoria, cnh_validade, ativo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", d, fetch=None)
 
             # Usuário administrador
-            execute_query("INSERT INTO users (id, email, password, nome) VALUES (%s, %s, %s, %s)",
-                          (str(uuid.uuid4()), "operacao@rotafacil.com.br", "123456", "Gestor de Frotas SP"), fetch=None)
+            admin_id = str(uuid.uuid4())
+            admin_pw_hash = werkzeug.security.generate_password_hash("123456")
+            execute_query("INSERT INTO users (id, email, password, nome, role) VALUES (%s, %s, %s, %s, 'admin')",
+                          (admin_id, "operacao@rotafacil.com.br", admin_pw_hash, "Gestor de Frotas SP"), fetch=None)
 
-            # Notas de exemplo na Grande SP
+            # Notas de exemplo associadas ao gestor inicial
             seed_invoices = [
-                (str(uuid.uuid4()), "10421", "1", "352601000104210001", "Mercado da Vila Ltda", "04775010", "Rua Olavo Bilac", "150", "Socorro", "São Paulo", 1450.00, 4, -23.6845, -46.7032, "pendente"),
-                (str(uuid.uuid4()), "10422", "1", "352601000104220002", "Distribuidora Santo Amaro", "04753000", "Avenida Washington Luís", "2100", "Santo Amaro", "São Paulo", 3280.50, 8, -23.6550, -46.6980, "pendente"),
-                (str(uuid.uuid4()), "10423", "1", "352601000104230003", "Auto Peças Interlagos", "04776000", "Avenida Interlagos", "3500", "Interlagos", "São Paulo", 890.00, 2, -23.6910, -46.6870, "pendente"),
-                (str(uuid.uuid4()), "10424", "1", "352601000104240004", "Empório Morumbi Gourmet", "05705000", "Rua Doutor Fonseca Brasil", "420", "Vila Andrade", "São Paulo", 4120.00, 12, -23.6280, -46.7240, "pendente"),
+                (str(uuid.uuid4()), "10421", "1", "352601000104210001", "Mercado da Vila Ltda", "04775010", "Rua Olavo Bilac", "150", "Socorro", "São Paulo", 1450.00, 4, -23.6845, -46.7032, "pendente", admin_id),
+                (str(uuid.uuid4()), "10422", "1", "352601000104220002", "Distribuidora Santo Amaro", "04753000", "Avenida Washington Luís", "2100", "Santo Amaro", "São Paulo", 3280.50, 8, -23.6550, -46.6980, "pendente", admin_id),
+                (str(uuid.uuid4()), "10423", "1", "352601000104230003", "Auto Peças Interlagos", "04776000", "Avenida Interlagos", "3500", "Interlagos", "São Paulo", 890.00, 2, -23.6910, -46.6870, "pendente", admin_id),
+                (str(uuid.uuid4()), "10424", "1", "352601000104240004", "Empório Morumbi Gourmet", "05705000", "Rua Doutor Fonseca Brasil", "420", "Vila Andrade", "São Paulo", 4120.00, 12, -23.6280, -46.7240, "pendente", admin_id),
             ]
             for inv in seed_invoices:
-                execute_query("INSERT INTO invoices (id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng, status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", inv, fetch=None)
+                execute_query("INSERT INTO invoices (id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng, status, user_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", inv, fetch=None)
 
     finally:
         conn.close()
 
 # Executa migrações/inicialização do banco
 init_db()
+
+# ==============================================================================
+# HELPERS DE AUTENTICAÇÃO E PERMISSÕES DE ADMIN
+# ==============================================================================
+
+def verify_password(plain_password, stored_password):
+    """Verifica senha com suporte a hashes e compatibilidade legada."""
+    if not stored_password:
+        return False
+    if stored_password.startswith("scrypt:") or stored_password.startswith("pbkdf2:"):
+        return werkzeug.security.check_password_hash(stored_password, plain_password)
+    return stored_password == plain_password
+
+def get_current_user():
+    """Obtém o usuário autenticado via cabeçalho Authorization Bearer."""
+    auth_header = request.headers.get("Authorization", "").strip()
+    if not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.replace("Bearer ", "").strip()
+    if not token:
+        return None
+    user_id = token.replace("rf_session_", "")
+    user = execute_query("SELECT id, email, nome, role FROM users WHERE id = %s", (user_id,), fetch="one")
+    return user
+
+def check_write_permission(user):
+    """
+    Verifica se a operação de escrita é autorizada:
+    1. Se user['role'] == 'admin', autorizado diretamente.
+    2. Se for operador regular, exige cabeçalho 'X-Admin-Token' ou body 'admin_token'
+       correspondente ao ADMIN_TOKEN configurado no backend.
+    """
+    if not user:
+        return False, (jsonify({"error": "unauthorized", "message": "Faça login para continuar."}), 401)
+
+    if user.get("role") == "admin":
+        return True, None
+
+    # Verifica token do admin enviado no header ou body
+    admin_token_header = request.headers.get("X-Admin-Token", "").strip()
+    admin_token_body = ""
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        if isinstance(data, dict):
+            admin_token_body = str(data.get("admin_token", "")).strip()
+
+    provided_token = admin_token_header or admin_token_body
+
+    if provided_token and provided_token == ADMIN_TOKEN:
+        return True, None
+
+    return False, (jsonify({
+        "error": "admin_token_required",
+        "message": "Token de modificação do Administrador obrigatório para salvar alterações."
+    }), 403)
 
 # ==============================================================================
 # ROTAS DA API
@@ -296,7 +401,16 @@ def health():
         "timestamp": datetime.datetime.now().isoformat()
     })
 
-# --- AUTENTICAÇÃO ---
+# --- AUTENTICAÇÃO & PERMISSÕES ---
+
+@app.route("/api/auth/verify-admin-token", methods=["POST"])
+def verify_admin_token():
+    """Valida se o token de administrador fornecido é válido."""
+    data = request.get_json() or {}
+    token = str(data.get("token", "")).strip()
+    if token and token == ADMIN_TOKEN:
+        return jsonify({"valid": True, "message": "Token do Administrador confirmado com sucesso."})
+    return jsonify({"valid": False, "error": "Token de Administrador incorreto ou inválido."}), 400
 
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
@@ -304,20 +418,26 @@ def auth_login():
     email = data.get("email", "").strip().lower()
     password = data.get("password", "").strip()
 
-    user = execute_query("SELECT id, email, nome FROM users WHERE email = %s AND password = %s", (email, password), fetch="one")
-    if not user:
-        # Se for o login demonstrativo ou primeiro acesso, aceita ou auto-cadastra
-        if email:
-            new_id = str(uuid.uuid4())
-            nome = email.split("@")[0].capitalize()
-            execute_query("INSERT INTO users (id, email, password, nome) VALUES (%s, %s, %s, %s)", (new_id, email, password, nome), fetch=None)
-            user = {"id": new_id, "email": email, "nome": nome}
-        else:
-            return jsonify({"error": "Credenciais inválidas"}), 401
+    if not email or not password:
+        return jsonify({"error": "E-mail e senha são obrigatórios"}), 400
 
+    user = execute_query("SELECT id, email, password, nome, role FROM users WHERE email = %s", (email,), fetch="one")
+    if not user:
+        return jsonify({"error": "Credenciais inválidas. Verifique seu e-mail e senha."}), 401
+
+    if not verify_password(password, user["password"]):
+        return jsonify({"error": "Senha incorreta. Tente novamente."}), 401
+
+    user_info = {
+        "id": user["id"],
+        "email": user["email"],
+        "nome": user["nome"],
+        "role": user.get("role", "user"),
+    }
     token = f"rf_session_{user['id']}"
+
     return jsonify({
-        "user": user,
+        "user": user_info,
         "token": token,
         "message": "Autenticado com sucesso"
     })
@@ -327,49 +447,70 @@ def auth_register():
     data = request.get_json() or {}
     email = data.get("email", "").strip().lower()
     password = data.get("password", "").strip()
+    nome = data.get("nome", "").strip() or email.split("@")[0].capitalize()
+    admin_token_input = str(data.get("admin_token", "")).strip() or request.headers.get("X-Admin-Token", "").strip()
 
     if not email or not password:
         return jsonify({"error": "E-mail e senha são obrigatórios"}), 400
 
+    if len(password) < 6:
+        return jsonify({"error": "A senha deve ter no mínimo 6 caracteres"}), 400
+
     existing = execute_query("SELECT id FROM users WHERE email = %s", (email,), fetch="one")
     if existing:
-        return jsonify({"error": "E-mail já cadastrado"}), 409
+        return jsonify({"error": "E-mail já cadastrado no sistema"}), 409
 
+    role = "admin" if (admin_token_input and admin_token_input == ADMIN_TOKEN) else "user"
     user_id = str(uuid.uuid4())
-    nome = email.split("@")[0].capitalize()
-    execute_query("INSERT INTO users (id, email, password, nome) VALUES (%s, %s, %s, %s)", (user_id, email, password, nome), fetch=None)
-    
+    pw_hash = werkzeug.security.generate_password_hash(password)
+
+    execute_query("INSERT INTO users (id, email, password, nome, role) VALUES (%s, %s, %s, %s, %s)",
+                  (user_id, email, pw_hash, nome, role), fetch=None)
+
+    user_info = {"id": user_id, "email": email, "nome": nome, "role": role}
     return jsonify({
-        "user": {"id": user_id, "email": email, "nome": nome},
+        "user": user_info,
         "token": f"rf_session_{user_id}",
         "message": "Operador registrado com sucesso"
     }), 201
 
 @app.route("/api/auth/me", methods=["GET"])
 def auth_me():
-    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
-    if not token or not token.startswith("rf_session_"):
-        # Retorna o primeiro usuário ativo ou demo para fluidez
-        user = execute_query("SELECT id, email, nome FROM users LIMIT 1", fetch="one")
-        if user:
-            return jsonify({"user": user})
-        return jsonify({"user": {"id": "demo-user", "email": "operacao@rotafacil.com.br", "nome": "Operador Logístico"}})
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized", "message": "Sessão inválida ou expirada"}), 401
 
-    user_id = token.replace("rf_session_", "")
-    user = execute_query("SELECT id, email, nome FROM users WHERE id = %s", (user_id,), fetch="one")
-    if user:
-        return jsonify({"user": user})
-    return jsonify({"user": {"id": user_id, "email": "operador@rotafacil.com.br", "nome": "Operador Logístico"}})
+    return jsonify({
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "nome": user["nome"],
+            "role": user.get("role", "user")
+        }
+    })
 
 # --- VEÍCULOS ---
 
 @app.route("/api/vehicles", methods=["GET"])
 def list_vehicles():
-    vehicles = execute_query("SELECT * FROM vehicles ORDER BY placa ASC")
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+
+    # Retorna veículos da frota compartilhada (user_id IS NULL) e veículos do usuário
+    vehicles = execute_query(
+        "SELECT * FROM vehicles WHERE user_id = %s OR user_id IS NULL ORDER BY placa ASC",
+        (user["id"],)
+    )
     return jsonify(vehicles)
 
 @app.route("/api/vehicles", methods=["POST"])
 def create_vehicle():
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     placa = data.get("placa", "").strip().upper()
     modelo = data.get("modelo", "").strip()
@@ -380,8 +521,8 @@ def create_vehicle():
 
     v_id = str(uuid.uuid4())
     try:
-        execute_query("INSERT INTO vehicles (id, placa, modelo, km_atual, ativo) VALUES (%s, %s, %s, %s, %s)",
-                      (v_id, placa, modelo, km_atual, 1), fetch=None)
+        execute_query("INSERT INTO vehicles (id, placa, modelo, km_atual, ativo, user_id) VALUES (%s, %s, %s, %s, %s, %s)",
+                      (v_id, placa, modelo, km_atual, 1, user["id"]), fetch=None)
         created = execute_query("SELECT * FROM vehicles WHERE id = %s", (v_id,), fetch="one")
         return jsonify(created), 201
     except Exception as e:
@@ -389,6 +530,11 @@ def create_vehicle():
 
 @app.route("/api/vehicles/<v_id>", methods=["PATCH"])
 def update_vehicle(v_id):
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     fields = []
     values = []
@@ -413,11 +559,23 @@ def update_vehicle(v_id):
 
 @app.route("/api/drivers", methods=["GET"])
 def list_drivers():
-    drivers = execute_query("SELECT * FROM drivers ORDER BY nome ASC")
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+
+    drivers = execute_query(
+        "SELECT * FROM drivers WHERE user_id = %s OR user_id IS NULL ORDER BY nome ASC",
+        (user["id"],)
+    )
     return jsonify(drivers)
 
 @app.route("/api/drivers", methods=["POST"])
 def create_driver():
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     nome = data.get("nome", "").strip()
     cnh = data.get("cnh", "").strip()
@@ -433,10 +591,10 @@ def create_driver():
     d_id = str(uuid.uuid4())
     execute_query(
         """
-        INSERT INTO drivers (id, nome, cnh, telefone, foto, cnh_foto, cnh_categoria, cnh_validade, ativo)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1)
+        INSERT INTO drivers (id, nome, cnh, telefone, foto, cnh_foto, cnh_categoria, cnh_validade, ativo, user_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, %s)
         """,
-        (d_id, nome, cnh, telefone, foto, cnh_foto, cnh_categoria, cnh_validade),
+        (d_id, nome, cnh, telefone, foto, cnh_foto, cnh_categoria, cnh_validade, user["id"]),
         fetch=None
     )
     created = execute_query("SELECT * FROM drivers WHERE id = %s", (d_id,), fetch="one")
@@ -444,6 +602,11 @@ def create_driver():
 
 @app.route("/api/drivers/<d_id>", methods=["PATCH"])
 def update_driver(d_id):
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     fields = []
     values = []
@@ -463,12 +626,19 @@ def update_driver(d_id):
     updated = execute_query("SELECT * FROM drivers WHERE id = %s", (d_id,), fetch="one")
     return jsonify(updated)
 
-# --- NOTAS FISCAIS (INVOICES) ---
+# --- NOTAS FISCAIS (INVOICES / ENTREGAS) ISOLADAS POR USER_ID ---
 
 @app.route("/api/invoices", methods=["GET"])
 def list_invoices():
-    invoices = execute_query("SELECT * FROM invoices ORDER BY created_at DESC")
-    # Converte tipos decimais e booleanos para compatibilidade com json
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+
+    # Isolamento estrito de workspace por conta de usuário
+    invoices = execute_query(
+        "SELECT * FROM invoices WHERE user_id = %s ORDER BY created_at DESC",
+        (user["id"],)
+    )
     for inv in invoices:
         if "valor" in inv and inv["valor"] is not None:
             inv["valor"] = float(inv["valor"])
@@ -476,6 +646,11 @@ def list_invoices():
 
 @app.route("/api/invoices", methods=["POST"])
 def create_invoice():
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     inv_id = str(uuid.uuid4())
     numero = data.get("numero", "").strip()
@@ -497,10 +672,10 @@ def create_invoice():
 
     execute_query(
         """
-        INSERT INTO invoices (id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pendente')
+        INSERT INTO invoices (id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng, status, user_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pendente', %s)
         """,
-        (inv_id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng),
+        (inv_id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng, user["id"]),
         fetch=None
     )
     created = execute_query("SELECT * FROM invoices WHERE id = %s", (inv_id,), fetch="one")
@@ -509,6 +684,11 @@ def create_invoice():
 
 @app.route("/api/invoices/batch", methods=["POST"])
 def create_invoices_batch():
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or []
     if isinstance(data, dict):
         data = data.get("invoices", [])
@@ -523,8 +703,8 @@ def create_invoices_batch():
 
         execute_query(
             """
-            INSERT INTO invoices (id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pendente')
+            INSERT INTO invoices (id, numero, serie, chave, destinatario, cep, logradouro, numero_endereco, bairro, cidade, valor, volumes, lat, lng, status, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pendente', %s)
             """,
             (
                 inv_id,
@@ -541,6 +721,7 @@ def create_invoices_batch():
                 vols,
                 lat,
                 lng,
+                user["id"],
             ),
             fetch=None
         )
@@ -550,6 +731,11 @@ def create_invoices_batch():
 
 @app.route("/api/invoices/<inv_id>", methods=["PATCH"])
 def update_invoice(inv_id):
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     fields = []
     values = []
@@ -570,15 +756,26 @@ def update_invoice(inv_id):
 
 @app.route("/api/invoices/<inv_id>", methods=["DELETE"])
 def delete_invoice(inv_id):
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     execute_query("DELETE FROM invoices WHERE id = %s", (inv_id,), fetch=None)
     return jsonify({"deleted": True, "id": inv_id})
 
-# --- ROTAS & DESPACHO ---
+# --- ROTAS & DESPACHO ISOLADOS POR USER_ID ---
 
 @app.route("/api/routes", methods=["GET"])
 def list_routes():
-    routes = execute_query("SELECT * FROM routes ORDER BY created_at DESC")
-    # Realiza o join com veículos e motoristas
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+
+    routes = execute_query(
+        "SELECT * FROM routes WHERE user_id = %s ORDER BY created_at DESC",
+        (user["id"],)
+    )
     result = []
     for r in routes:
         v = execute_query("SELECT placa, modelo FROM vehicles WHERE id = %s", (r["vehicle_id"],), fetch="one")
@@ -591,6 +788,11 @@ def list_routes():
 
 @app.route("/api/routes", methods=["POST"])
 def create_route():
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     v_id = data.get("vehicle_id")
     d_id = data.get("driver_id")
@@ -602,8 +804,8 @@ def create_route():
         return jsonify({"error": "Veículo e motorista são obrigatórios"}), 400
 
     execute_query(
-        "INSERT INTO routes (id, vehicle_id, driver_id, data, km_inicial, status) VALUES (%s, %s, %s, %s, %s, 'aberta')",
-        (r_id, v_id, d_id, hoje, km_inicial),
+        "INSERT INTO routes (id, vehicle_id, driver_id, data, km_inicial, status, user_id) VALUES (%s, %s, %s, %s, %s, 'aberta', %s)",
+        (r_id, v_id, d_id, hoje, km_inicial, user["id"]),
         fetch=None
     )
     created = execute_query("SELECT * FROM routes WHERE id = %s", (r_id,), fetch="one")
@@ -611,6 +813,11 @@ def create_route():
 
 @app.route("/api/routes/<r_id>/close", methods=["POST", "PATCH"])
 def close_route(r_id):
+    user = get_current_user()
+    allowed, err_resp = check_write_permission(user)
+    if not allowed:
+        return err_resp
+
     data = request.get_json() or {}
     km_final = int(data.get("km_final") or 0)
     now = datetime.datetime.now().isoformat()
@@ -624,7 +831,6 @@ def close_route(r_id):
         (km_final, now, r_id),
         fetch=None
     )
-    # Atualiza KM do veículo
     execute_query("UPDATE vehicles SET km_atual = %s WHERE id = %s", (km_final, route["vehicle_id"]), fetch=None)
 
     updated = execute_query("SELECT * FROM routes WHERE id = %s", (r_id,), fetch="one")
@@ -638,4 +844,3 @@ if __name__ == "__main__":
     debug = os.environ.get("FLASK_ENV") == "development"
     logger.info(f"Iniciando RotaFacil Flask API na porta {port}...")
     app.run(host="0.0.0.0", port=port, debug=debug)
-

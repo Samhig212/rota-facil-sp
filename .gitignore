@@ -43,6 +43,14 @@ wheels/
 *.sqlite3
 backend/*.db
 
+# Environment files
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

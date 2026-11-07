@@ -1,12 +1,19 @@
 /**
  * Cliente HTTP unificado para a API Flask (RotaFacil SP).
- * Utiliza a variável de ambiente VITE_API_URL com fallback para http://localhost:5000
+ * Suporta autenticação multiusuário, isolamento de workspace e token de modificação de administrador.
  */
 
 export const API_BASE_URL = (
   (typeof import.meta !== "undefined" && import.meta.env?.["VITE_API_URL"]) ||
   "http://localhost:5000"
 ).replace(/\/$/, "");
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  nome: string;
+  role: "admin" | "user";
+}
 
 export class ApiError extends Error {
   status: number;
@@ -20,10 +27,79 @@ export class ApiError extends Error {
   }
 }
 
-function getAuthHeader(): Record<string, string> {
+// Helpers para token de modificação do administrador
+export function getAdminToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("rf_admin_token");
+}
+
+export function setAdminToken(token: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("rf_admin_token", token.trim());
+  window.dispatchEvent(new CustomEvent("rf:admin-token-change"));
+}
+
+export function clearAdminToken(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("rf_admin_token");
+  window.dispatchEvent(new CustomEvent("rf:admin-token-change"));
+}
+
+export function getCurrentUser(): AuthUser | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem("rf_auth_user");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function isCurrentUserAdmin(): boolean {
+  const user = getCurrentUser();
+  return user?.role === "admin";
+}
+
+export function hasWriteAuthorization(): boolean {
+  return isCurrentUserAdmin() || Boolean(getAdminToken());
+}
+
+/**
+ * Solicita autorização de administrador.
+ * Se o usuário for admin ou já tiver o token salvo, retorna true imediatamente.
+ * Caso contrário, abre o modal de inserção de token e aguarda a validação.
+ */
+export function ensureAdminAuthorization(actionDescription = "salvar alterações"): Promise<boolean> {
+  if (hasWriteAuthorization()) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise<boolean>((resolve) => {
+    if (typeof window === "undefined") {
+      resolve(false);
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("rf:open-admin-token-dialog", {
+        detail: { actionDescription, resolve },
+      })
+    );
+  });
+}
+
+function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
+  const headers: Record<string, string> = {};
   const token = localStorage.getItem("rf_auth_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const adminToken = getAdminToken();
+  if (adminToken) {
+    headers["X-Admin-Token"] = adminToken;
+  }
+  return headers;
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -31,7 +107,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   
   const headers = {
     "Content-Type": "application/json",
-    ...getAuthHeader(),
+    ...getAuthHeaders(),
     ...(options.headers || {}),
   };
 
@@ -50,6 +126,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     const errorMsg = data?.error || data?.message || `Erro na requisição (${response.status})`;
+    
+    // Se o backend exigir o token de modificação do admin (403), emite evento para a UI
+    if (response.status === 403 && data?.error === "admin_token_required") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("rf:admin-token-required"));
+      }
+    }
+
     throw new ApiError(errorMsg, response.status, data);
   }
 
@@ -79,40 +163,54 @@ export const api = {
   delete: <T>(endpoint: string, options?: RequestInit) =>
     request<T>(endpoint, { method: "DELETE", ...(options || {}) }),
 
-  // Módulo de Autenticação
+  // Módulo de Autenticação e Permissões
   auth: {
     async login(email: string, password: string) {
-      const res = await api.post<{ user: any; token: string }>("/api/auth/login", { email, password });
+      const res = await api.post<{ user: AuthUser; token: string }>("/api/auth/login", { email, password });
       if (typeof window !== "undefined" && res.token) {
         localStorage.setItem("rf_auth_token", res.token);
         localStorage.setItem("rf_auth_user", JSON.stringify(res.user));
       }
       return res;
     },
-    async register(email: string, password: string) {
-      const res = await api.post<{ user: any; token: string }>("/api/auth/register", { email, password });
+
+    async register(email: string, password: string, nome?: string, adminToken?: string) {
+      const payload: Record<string, string> = { email, password };
+      if (nome) payload["nome"] = nome;
+      if (adminToken) payload["admin_token"] = adminToken;
+
+      const res = await api.post<{ user: AuthUser; token: string }>("/api/auth/register", payload);
       if (typeof window !== "undefined" && res.token) {
         localStorage.setItem("rf_auth_token", res.token);
         localStorage.setItem("rf_auth_user", JSON.stringify(res.user));
+        if (adminToken && res.user.role === "admin") {
+          setAdminToken(adminToken);
+        }
       }
       return res;
     },
-    async me() {
+
+    async verifyAdminToken(token: string) {
+      return await api.post<{ valid: boolean; message?: string }>("/api/auth/verify-admin-token", { token });
+    },
+
+    async me(): Promise<AuthUser | null> {
       try {
-        const res = await api.get<{ user: any }>("/api/auth/me");
+        const res = await api.get<{ user: AuthUser }>("/api/auth/me");
+        if (typeof window !== "undefined" && res.user) {
+          localStorage.setItem("rf_auth_user", JSON.stringify(res.user));
+        }
         return res.user;
       } catch {
-        if (typeof window !== "undefined") {
-          const raw = localStorage.getItem("rf_auth_user");
-          if (raw) return JSON.parse(raw);
-        }
-        return { id: "guest", email: "operacao@rotafacil.com.br", nome: "Operador Logístico" };
+        return null;
       }
     },
+
     logout() {
       if (typeof window !== "undefined") {
         localStorage.removeItem("rf_auth_token");
         localStorage.removeItem("rf_auth_user");
+        localStorage.removeItem("rf_admin_token");
       }
     },
   },
@@ -120,7 +218,7 @@ export const api = {
   // Módulo de Veículos
   vehicles: {
     list: () => api.get<any[]>("/api/vehicles"),
-    create: (data: { placa: string; modelo?: string | undefined; km_atual?: number | undefined }) =>
+    create: (data: { placa: string; modelo?: string; km_atual?: number }) =>
       api.post<any>("/api/vehicles", data),
     update: (id: string, data: Partial<{ placa: string; modelo: string; km_atual: number; ativo: boolean }>) =>
       api.patch<any>(`/api/vehicles/${id}`, data),
@@ -131,12 +229,12 @@ export const api = {
     list: () => api.get<any[]>("/api/drivers"),
     create: (data: {
       nome: string;
-      cnh?: string | undefined;
-      telefone?: string | undefined;
-      foto?: string | undefined;
-      cnh_foto?: string | undefined;
-      cnh_categoria?: string | undefined;
-      cnh_validade?: string | undefined;
+      cnh?: string;
+      telefone?: string;
+      foto?: string;
+      cnh_foto?: string;
+      cnh_categoria?: string;
+      cnh_validade?: string;
     }) => api.post<any>("/api/drivers", data),
     update: (id: string, data: Record<string, any>) =>
       api.patch<any>(`/api/drivers/${id}`, data),
@@ -151,10 +249,10 @@ export const api = {
     delete: (id: string) => api.delete<any>(`/api/invoices/${id}`),
   },
 
-  // Módulo de Rotas
+  // Módulo de Rotas & Despacho
   routes: {
     list: () => api.get<any[]>("/api/routes"),
-    create: (data: { vehicle_id: string; driver_id: string; km_inicial?: number | undefined }) =>
+    create: (data: { vehicle_id: string; driver_id: string; km_inicial?: number }) =>
       api.post<any>("/api/routes", data),
     close: (id: string, km_final: number) =>
       api.post<any>(`/api/routes/${id}/close`, { km_final }),

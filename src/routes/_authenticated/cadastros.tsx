@@ -27,7 +27,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ensureAdminAuthorization } from "@/lib/api";
 import { PageHeader, Plate } from "@/components/fleet-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +134,9 @@ function CadastrosPage() {
   const [newKmValue, setNewKmValue] = useState("");
 
   async function runOp(action: () => Promise<any>, key: string, okMsg: string) {
+    const authorized = await ensureAdminAuthorization("modificar dados da frota");
+    if (!authorized) return false;
+
     try {
       await action();
       toast.success(okMsg);
@@ -164,6 +167,10 @@ function CadastrosPage() {
       toast.error("Informe o nome do motorista");
       return;
     }
+
+    const authorized = await ensureAdminAuthorization("cadastrar novo motorista");
+    if (!authorized) return;
+
     setSubmittingDriver(true);
 
     try {
@@ -216,6 +223,10 @@ function CadastrosPage() {
 
   async function handleSaveEditProfile() {
     if (!editingDriver) return;
+
+    const authorized = await ensureAdminAuthorization("atualizar dados do motorista");
+    if (!authorized) return;
+
     try {
       await api.drivers.update(editingDriver.id, {
         foto: editFoto || undefined,

@@ -1,22 +1,26 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   AlertTriangle,
   ClipboardCheck,
   FileText,
+  KeyRound,
   LogOut,
   Map,
   MapPin,
   Route as RouteIcon,
+  ShieldCheck,
   Truck,
   Wrench,
+  X,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, getAdminToken, clearAdminToken, ensureAdminAuthorization } from "@/lib/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { vehiclesQuery } from "@/lib/fleet";
 import { getAllMaintenanceAlerts, useVehicleMaintenance } from "@/lib/vehicle-maintenance";
+import { AdminTokenDialog } from "@/components/AdminTokenDialog";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -44,6 +48,16 @@ function Shell() {
   const { user } = Route.useRouteContext();
   const navigate = useNavigate();
 
+  const [hasAdminToken, setHasAdminToken] = useState<boolean>(Boolean(getAdminToken()));
+
+  useEffect(() => {
+    function onTokenChange() {
+      setHasAdminToken(Boolean(getAdminToken()));
+    }
+    window.addEventListener("rf:admin-token-change", onTokenChange);
+    return () => window.removeEventListener("rf:admin-token-change", onTokenChange);
+  }, []);
+
   const { data: vehicles } = useQuery(vehiclesQuery);
   const { records } = useVehicleMaintenance();
 
@@ -52,8 +66,13 @@ function Shell() {
     return getAllMaintenanceAlerts(vehicles);
   }, [vehicles, records]);
 
+  const isAdmin = user.role === "admin";
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground md:flex-row">
+      {/* Modal global de inserção e validação do token do administrador */}
+      <AdminTokenDialog />
+
       {/* Mobile Top Bar */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-sidebar-border bg-sidebar/95 px-4 py-3 text-sidebar-foreground backdrop-blur-md md:hidden">
         <div className="flex items-center gap-2 text-base font-extrabold tracking-tight">
@@ -75,6 +94,26 @@ function Shell() {
               <span>{maintenanceAlerts.urgentCount}</span>
             </Link>
           )}
+
+          {/* Status de permissão no mobile */}
+          {isAdmin ? (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+              <ShieldCheck size={11} /> Admin
+            </span>
+          ) : hasAdminToken ? (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold">
+              <KeyRound size={11} /> Token
+            </span>
+          ) : (
+            <button
+              onClick={() => ensureAdminAuthorization()}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold"
+              title="Inserir Token do Administrador"
+            >
+              <KeyRound size={11} /> +Token
+            </button>
+          )}
+
           <ThemeToggle />
           <Button
             variant="ghost"
@@ -155,29 +194,70 @@ function Shell() {
         <div className="mt-auto hidden flex-col gap-3 border-t border-sidebar-border/70 p-4 md:flex">
           <ThemeToggle variant="sidebar" />
 
-          <div className="flex items-center justify-between rounded-xl bg-sidebar-accent/50 p-2.5 border border-sidebar-border/60">
-            <div className="min-w-0 pr-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-sidebar-foreground/60">
-                Operador Logístico
-              </p>
-              <p className="truncate text-xs font-medium text-sidebar-foreground" title={user.email}>
-                {user.email}
-              </p>
+          {/* Permissões & Token do Administrador */}
+          <div className="rounded-xl bg-sidebar-accent/50 p-2.5 border border-sidebar-border/60 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0 pr-2">
+                <div className="flex items-center gap-1.5">
+                  {isAdmin ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">
+                      <ShieldCheck size={11} /> Gestor / Admin
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                      Operador
+                    </span>
+                  )}
+                </div>
+                <p className="truncate text-xs font-medium text-sidebar-foreground mt-1" title={user.email}>
+                  {user.email}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0 text-sidebar-foreground/80 hover:bg-destructive/20 hover:text-destructive transition-colors duration-200 rounded-lg"
+                title="Encerrar sessão"
+                aria-label="Sair da conta"
+                onClick={() => {
+                  api.auth.logout();
+                  window.dispatchEvent(new CustomEvent("rf:auth-change"));
+                  navigate({ to: "/auth" });
+                }}
+              >
+                <LogOut size={16} />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0 text-sidebar-foreground/80 hover:bg-destructive/20 hover:text-destructive transition-colors duration-200 rounded-lg"
-              title="Encerrar sessão"
-              aria-label="Sair da conta"
-              onClick={() => {
-                api.auth.logout();
-                window.dispatchEvent(new CustomEvent("rf:auth-change"));
-                navigate({ to: "/auth" });
-              }}
-            >
-              <LogOut size={16} />
-            </Button>
+
+            {/* Se for usuário regular, exibe status do token do admin */}
+            {!isAdmin && (
+              <div className="pt-1.5 border-t border-sidebar-border/40 flex items-center justify-between text-[11px]">
+                {hasAdminToken ? (
+                  <div className="flex items-center justify-between w-full">
+                    <span className="flex items-center gap-1 font-semibold text-blue-400 text-[10px]">
+                      <ShieldCheck size={12} /> Token Admin Ativo
+                    </span>
+                    <button
+                      onClick={() => clearAdminToken()}
+                      className="text-[10px] text-muted-foreground hover:text-destructive flex items-center gap-0.5"
+                      title="Revogar token salvo"
+                    >
+                      <X size={11} /> Limpar
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => ensureAdminAuthorization("inserir token de modificação")}
+                    className="w-full text-left flex items-center justify-between rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 px-2 py-1 transition-colors text-[10px] font-bold border border-amber-500/30"
+                  >
+                    <span className="flex items-center gap-1">
+                      <KeyRound size={11} /> Inserir Token Admin
+                    </span>
+                    <span>→</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </aside>

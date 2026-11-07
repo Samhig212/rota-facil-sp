@@ -63,23 +63,39 @@ O site vai abrir em `http://localhost:3000` (ou na porta que o Vite indicar no t
 
 O projeto já tá 100% pronto pra deploy no Render!
 
-### 1. Criando o Web Service do Backend
-1. No painel do Render, crie um **New Web Service** apontando pro seu repositório do GitHub.
-2. Configure:
-   - **Environment:** `Python`
-   - **Build Command:** `pip install -r backend/requirements.txt`
-   - **Start Command:** `gunicorn --chdir backend app:app` (ou o Render vai ler automaticamente o arquivo `Procfile`)
-3. Nas variáveis de ambiente (**Environment Variables**), adicione:
-   - `PORT`: 5000 (ou o Render define sozinho)
-   - `DATABASE_URL` ou `MYSQL_URL` (se for usar o MySQL gerenciado do Render ou Railway). Caso não coloque, ele usa o SQLite local sem problemas.
+   ### 1. Criando o Web Service do Backend
+   1. No painel do Render, crie um **New Web Service** apontando pro seu repositório do GitHub.
+   2. Configure:
+      - **Environment:** `Python`
+      - **Build Command:** `pip install -r backend/requirements.txt`
+      - **Start Command:** `gunicorn --chdir backend app:app` (ou o Render vai ler automaticamente o arquivo `Procfile`)
+   3. Nas variáveis de ambiente (**Environment Variables**), adicione:
+      - `PORT`: 5000 (ou o Render define sozinho)
+      - `ADMIN_TOKEN`: `ADMIN123` (ou o token seguro que você definir para autorizar alterações)
+      - `DATABASE_URL` ou `MYSQL_URL` (se for usar o MySQL gerenciado do Render ou Railway). Caso não coloque, ele usa o SQLite local sem problemas.
 
-### 2. Criando o Static Site do Frontend
-1. Crie um **New Static Site** apontando pro mesmo repositório.
-2. Configure:
-   - **Build Command:** `npm run build`
-   - **Publish Directory:** `dist`
-3. Nas variáveis de ambiente do Frontend:
-   - `VITE_API_URL`: Coloque a URL do seu backend gerada pelo Render (ex: `https://seu-backend.onrender.com`).
+   ### 2. Criando o Static Site do Frontend
+   1. Crie um **New Static Site** apontando pro mesmo repositório.
+   2. Configure:
+      - **Build Command:** `npm run build`
+      - **Publish Directory:** `dist`
+   3. Nas variáveis de ambiente do Frontend:
+      - `VITE_API_URL`: Coloque a URL do seu backend gerada pelo Render (ex: `https://seu-backend.onrender.com`).
+
+---
+
+## 🔐 Autenticação, Isolamento de Espaços e Token do Admin
+
+O sistema possui controle completo de múltiplos operadores com isolamento de dados:
+- **Espaço Isolado por Conta:** Cada usuário logado (ex: `sam12@gmail.com` vs `sam13@gmail.com`) enxerga exclusivamente suas próprias notas fiscais e despachos de rotas.
+- **Perfil de Gestor / Admin:** Contas com perfil de administrador possuem permissão direta de escrita e visualização geral.
+- **Token de Modificação do Admin:** Qualquer operação de alteração (lançamento de NF-e, despacho, cadastro de veículo/motorista) feita por um operador regular exige o token de modificação do administrador (`ADMIN_TOKEN`, padrão: `ADMIN123`). O front-end abre automaticamente a janela para o operador inserir e validar o token caso ainda não o tenha informado.
+
+### Contas de Teste Rápido:
+- **Gestor / Admin:** `operacao@rotafacil.com.br` | Senha: `123456` (Acesso direto sem necessidade de token)
+- **Operador 1:** `sam12@gmail.com` | Senha: `123456`
+- **Operador 2:** `sam13@gmail.com` | Senha: `123456`
+- **Token Admin:** `ADMIN123`
 
 ---
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, FileText, Loader2, Trash2, Upload } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ensureAdminAuthorization } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -48,6 +48,10 @@ export function NfeBatchImportModal({
 
   async function importarTodas() {
     if (items.length === 0) return;
+
+    const authorized = await ensureAdminAuthorization("importar lote de notas fiscais");
+    if (!authorized) return;
+
     setImporting(true);
     setProgress({ current: 0, total: items.length });
 

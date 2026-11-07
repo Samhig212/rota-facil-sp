@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `email` VARCHAR(150) NOT NULL UNIQUE,
   `password` VARCHAR(255) NOT NULL,
   `nome` VARCHAR(150) NOT NULL,
+  `role` VARCHAR(20) NOT NULL DEFAULT 'user',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -22,7 +23,9 @@ CREATE TABLE IF NOT EXISTS `vehicles` (
   `modelo` VARCHAR(100) NOT NULL DEFAULT '',
   `km_atual` INT NOT NULL DEFAULT 0,
   `ativo` BOOLEAN NOT NULL DEFAULT 1,
-  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `user_id` VARCHAR(36) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_vehicles_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 3. TABELA DE MOTORISTAS (COM FOTO E DOCUMENTO CNH)
@@ -36,7 +39,9 @@ CREATE TABLE IF NOT EXISTS `drivers` (
   `cnh_categoria` VARCHAR(10) NOT NULL DEFAULT 'B',
   `cnh_validade` VARCHAR(30) DEFAULT '',
   `ativo` BOOLEAN NOT NULL DEFAULT 1,
-  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `user_id` VARCHAR(36) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_drivers_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 4. TABELA DE ROTAS E DESPACHO
@@ -49,14 +54,16 @@ CREATE TABLE IF NOT EXISTS `routes` (
   `km_final` INT DEFAULT NULL,
   `status` VARCHAR(20) NOT NULL DEFAULT 'aberta',
   `closed_at` TIMESTAMP NULL DEFAULT NULL,
+  `user_id` VARCHAR(36) DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_routes_user` (`user_id`),
   INDEX `idx_routes_vehicle` (`vehicle_id`),
   INDEX `idx_routes_driver` (`driver_id`),
   CONSTRAINT `fk_routes_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_routes_driver` FOREIGN KEY (`driver_id`) REFERENCES `drivers` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 5. TABELA DE NOTAS FISCAIS ELETRÔNICAS (INVOICES)
+-- 5. TABELA DE NOTAS FISCAIS ELETRÔNICAS (INVOICES / ENTREGAS)
 CREATE TABLE IF NOT EXISTS `invoices` (
   `id` VARCHAR(36) NOT NULL PRIMARY KEY,
   `numero` VARCHAR(50) NOT NULL,
@@ -76,7 +83,9 @@ CREATE TABLE IF NOT EXISTS `invoices` (
   `motivo_devolucao` TEXT DEFAULT NULL,
   `route_id` VARCHAR(36) DEFAULT NULL,
   `ordem` INT DEFAULT NULL,
+  `user_id` VARCHAR(36) DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_invoices_user` (`user_id`),
   INDEX `idx_invoices_route` (`route_id`),
   INDEX `idx_invoices_status` (`status`),
   CONSTRAINT `fk_invoices_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE SET NULL
@@ -139,11 +148,11 @@ INSERT IGNORE INTO `drivers` (`id`, `nome`, `cnh`, `telefone`, `foto`, `cnh_foto
    'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=600&q=80',
    'E', '2029-02-10', 1);
 
-INSERT IGNORE INTO `users` (`id`, `email`, `password`, `nome`) VALUES
-  ('u-001', 'operacao@rotafacil.com.br', '123456', 'Gestor de Frotas SP');
+INSERT IGNORE INTO `users` (`id`, `email`, `password`, `nome`, `role`) VALUES
+  ('u-001', 'operacao@rotafacil.com.br', '123456', 'Gestor de Frotas SP', 'admin');
 
-INSERT IGNORE INTO `invoices` (`id`, `numero`, `serie`, `chave`, `destinatario`, `cep`, `logradouro`, `numero_endereco`, `bairro`, `cidade`, `valor`, `volumes`, `lat`, `lng`, `status`) VALUES
-  ('inv-001', '10421', '1', '352601000104210001', 'Mercado da Vila Ltda', '04775010', 'Rua Olavo Bilac', '150', 'Socorro', 'São Paulo', 1450.00, 4, -23.6845, -46.7032, 'pendente'),
-  ('inv-002', '10422', '1', '352601000104220002', 'Distribuidora Santo Amaro', '04753000', 'Avenida Washington Luís', '2100', 'Santo Amaro', 'São Paulo', 3280.50, 8, -23.6550, -46.6980, 'pendente'),
-  ('inv-003', '10423', '1', '352601000104230003', 'Auto Peças Interlagos', '04776000', 'Avenida Interlagos', '3500', 'Interlagos', 'São Paulo', 890.00, 2, -23.6910, -46.6870, 'pendente'),
-  ('inv-004', '10424', '1', '352601000104240004', 'Empório Morumbi Gourmet', '05705000', 'Rua Doutor Fonseca Brasil', '420', 'Vila Andrade', 'São Paulo', 4120.00, 12, -23.6280, -46.7240, 'pendente');
+INSERT IGNORE INTO `invoices` (`id`, `numero`, `serie`, `chave`, `destinatario`, `cep`, `logradouro`, `numero_endereco`, `bairro`, `cidade`, `valor`, `volumes`, `lat`, `lng`, `status`, `user_id`) VALUES
+  ('inv-001', '10421', '1', '352601000104210001', 'Mercado da Vila Ltda', '04775010', 'Rua Olavo Bilac', '150', 'Socorro', 'São Paulo', 1450.00, 4, -23.6845, -46.7032, 'pendente', 'u-001'),
+  ('inv-002', '10422', '1', '352601000104220002', 'Distribuidora Santo Amaro', '04753000', 'Avenida Washington Luís', '2100', 'Santo Amaro', 'São Paulo', 3280.50, 8, -23.6550, -46.6980, 'pendente', 'u-001'),
+  ('inv-003', '10423', '1', '352601000104230003', 'Auto Peças Interlagos', '04776000', 'Avenida Interlagos', '3500', 'Interlagos', 'São Paulo', 890.00, 2, -23.6910, -46.6870, 'pendente', 'u-001'),
+  ('inv-004', '10424', '1', '352601000104240004', 'Empório Morumbi Gourmet', '05705000', 'Rua Doutor Fonseca Brasil', '420', 'Vila Andrade', 'São Paulo', 4120.00, 12, -23.6280, -46.7240, 'pendente', 'u-001');
