@@ -12,7 +12,7 @@ load_dotenv()
 
 app = Flask(__name__)
 # Habilita CORS para permitir que o front-end React consuma a API livremente
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("RotaFacilAPI")
@@ -275,6 +275,15 @@ init_db()
 # ==============================================================================
 # ROTAS DA API
 # ==============================================================================
+
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({
+        "status": "success",
+        "message": "API RotaFácil SP online!",
+        "service": "RotaFacil SP API",
+        "version": "1.0.0"
+    })
 
 @app.route("/api/health", methods=["GET"])
 def health():
