@@ -1,93 +1,101 @@
-# RotaFacil SP — Gestão de Frota & Logística Estratégica
+# 🚚 RotaFácil SP
 
-Sistema corporativo e independente para gestão operacional de frota própria, roteirização estratégica por proximidade, controle de condutores com CNH/foto e fechamento diário de viagens.
+E aí! Esse aqui é o **RotaFácil SP**, um sistema que desenvolvemos pra facilitar o dia a dia da operação logística e despacho de entregas aqui na Grande São Paulo.
 
----
+A ideia principal é resolver aquela dor de cabeça de montar rotas: o sistema pega as notas fiscais cadastradas (ou importadas via XML de NF-e), calcula a rota partindo da nossa base no Socorro (Rua Professor Oswaldo Quirino Simões, 142) e organiza a sequência de entrega passando sempre pelo ponto mais próximo do anterior pra economizar combustível e tempo de percurso.
 
-## 🚀 Arquitetura do Sistema
-
-* **Front-end:** React 19, TypeScript, Vite, Tailwind CSS, Leaflet Maps, TanStack Query & Router.
-* **Back-end:** Python 3, Flask, Flask-CORS, Gunicorn.
-* **Banco de Dados:** MySQL (compatível com MySQL 8, MariaDB, AWS RDS, Render e Railway), com fallback automático para SQLite local.
-* **Ponto de Partida Oficial:** Rua Professor Oswaldo Quirino Simões, 142 – Socorro / SP.
+Também tem controle de veículos da frota, cadastro de motoristas com foto e CNH, mapa interativo com Leaflet e fechamento de viagem com registro de KM e devoluções.
 
 ---
 
-## 📂 Estrutura do Repositório
+## 🛠️ O que usamos no projeto
 
-```
-rota-facil-sp/
-├── backend/
-│   ├── app.py             # Servidor Flask com endpoints REST e suporte a porta dinâmica
-│   ├── requirements.txt   # Dependências Python (Flask, PyMySQL, Gunicorn, etc.)
-│   ├── schema.sql         # Script de criação de tabelas e seeds para MySQL
-│   └── .env.example       # Modelo de variáveis de ambiente do backend
-├── src/
-│   ├── components/        # Componentes visuais e mapas Leaflet
-│   ├── lib/
-│   │   ├── api.ts         # Cliente HTTP unificado usando VITE_API_URL
-│   │   ├── geo.ts         # Base (R. Prof. Oswaldo Quirino Simões) e Rota Estratégica
-│   │   ├── fleet.ts       # Consultas de veículos, motoristas e rotas
-│   │   └── driver-profiles.ts # Gestão de fotos e via digital da CNH
-│   └── routes/            # Telas: Mapa, Lançamento de NF-e, Despacho, Fechamento e Cadastros
-├── Procfile               # Arquivo de inicialização para deploy no Render/Railway
-├── .env.example           # Modelo de variáveis de ambiente do front-end
-├── package.json           # Dependências e scripts do React/Vite
-└── vite.config.ts         # Configuração independente do Vite
-```
+- **Front-end:** React 19, TypeScript, Vite, Tailwind CSS, Leaflet pra renderizar o mapa de entregas, TanStack Router e Query pras rotas e gerenciamento de estado.
+- **Back-end:** Python com Flask, Flask-CORS e Gunicorn.
+- **Banco de Dados:** MySQL em produção (com fallback automático pra SQLite local pra quem quiser testar sem precisar subir um banco MySQL).
 
 ---
 
-## ⚙️ Como Executar Localmente
+## 💻 Como rodar na sua máquina
 
-### 1. Iniciar o Back-end (Python Flask)
+Pra rodar o projeto localmente você vai precisar de dois terminais: um pro backend e outro pro frontend.
+
+### 1. Rodando a API (Backend)
+
+No primeiro terminal:
 
 ```bash
+# Entra na pasta do backend
 cd backend
+
+# Cria e ativa o ambiente virtual
 python -m venv venv
+
 # No Windows:
 venv\Scripts\activate
 # No Linux/Mac:
 source venv/bin/activate
 
+# Instala as dependências e roda o servidor
 pip install -r requirements.txt
 python app.py
 ```
 
-* O backend será iniciado em: `http://localhost:5000`
-* Caso não tenha um servidor MySQL rodando localmente, o Flask inicializará automaticamente um banco SQLite em `backend/rota_facil.db` com dados de demonstração.
+Pronto! A API vai estar rodando em `http://localhost:5000`. Se você não tiver um MySQL configurado, relaxa: o próprio Flask cria um arquivo SQLite local (`rota_facil.db`) com os dados iniciais pra você testar na hora.
 
-### 2. Iniciar o Front-end (React + Vite)
+### 2. Rodando o Front-end (React)
 
-Em outro terminal na raiz do projeto:
+No segundo terminal (na raiz do projeto):
 
 ```bash
-# Copie o arquivo de variáveis de ambiente
-cp .env.example .env
+# Instala as dependências
+npm install
 
-# Instale as dependências
-npm install # ou bun install / pnpm install
-
-# Inicie o servidor de desenvolvimento
+# Inicia o Vite
 npm run dev
 ```
 
-* O frontend será iniciado em: `http://localhost:3000`
+O site vai abrir em `http://localhost:3000` (ou na porta que o Vite indicar no terminal).
 
 ---
 
-## 🌐 Deploy em Produção (Render / Railway)
+## 🚀 Subindo no Render
 
-O projeto possui o arquivo `Procfile` configurado para execução com **Gunicorn**:
+O projeto já tá 100% pronto pra deploy no Render!
 
-```procfile
-web: gunicorn --chdir backend app:app
+### 1. Criando o Web Service do Backend
+1. No painel do Render, crie um **New Web Service** apontando pro seu repositório do GitHub.
+2. Configure:
+   - **Environment:** `Python`
+   - **Build Command:** `pip install -r backend/requirements.txt`
+   - **Start Command:** `gunicorn --chdir backend app:app` (ou o Render vai ler automaticamente o arquivo `Procfile`)
+3. Nas variáveis de ambiente (**Environment Variables**), adicione:
+   - `PORT`: 5000 (ou o Render define sozinho)
+   - `DATABASE_URL` ou `MYSQL_URL` (se for usar o MySQL gerenciado do Render ou Railway). Caso não coloque, ele usa o SQLite local sem problemas.
+
+### 2. Criando o Static Site do Frontend
+1. Crie um **New Static Site** apontando pro mesmo repositório.
+2. Configure:
+   - **Build Command:** `npm run build`
+   - **Publish Directory:** `dist`
+3. Nas variáveis de ambiente do Frontend:
+   - `VITE_API_URL`: Coloque a URL do seu backend gerada pelo Render (ex: `https://seu-backend.onrender.com`).
+
+---
+
+## 📂 Estrutura das Pastas
+
 ```
-
-### Variáveis de Ambiente no Deploy:
-
-* **No Backend (Web Service Python):**
-  * `PORT`: Configurado automaticamente pela plataforma.
-  * `MYSQL_URL` ou `DATABASE_URL`: URL do banco de dados MySQL disponibilizado na nuvem.
-* **No Frontend (Static Site ou Node Service):**
-  * `VITE_API_URL`: URL do seu backend em produção (ex: `https://rotafacil-api.onrender.com`).
+rota-facil-sp/
+├── backend/
+│   ├── app.py             # Servidor Flask com as rotas da API
+│   ├── requirements.txt   # Pacotes necessários do Python
+│   └── schema.sql         # Estrutura do banco de dados MySQL
+├── public/                # Ícone do site (caminhão de entrega) e estáticos
+├── src/
+│   ├── components/        # Componentes visuais e o mapa Leaflet
+│   ├── lib/               # Lógica de cálculo de rotas (Haversine), API e tipos
+│   └── routes/            # Telas do sistema (Mapa, Despacho, NF-e, Fechamento, etc.)
+├── Procfile               # Instrução de boot pro deploy
+└── vite.config.ts         # Configuração do Vite e Tailwind
+```
