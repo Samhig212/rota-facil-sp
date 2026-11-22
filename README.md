@@ -81,6 +81,10 @@ O projeto já tá 100% pronto pra deploy no Render!
       - **Publish Directory:** `dist`
    3. Nas variáveis de ambiente do Frontend:
       - `VITE_API_URL`: Coloque a URL do seu backend gerada pelo Render (ex: `https://seu-backend.onrender.com`).
+   4. Em **Redirects/Rewrites**:
+      - A regra de SPA `/* -> /index.html (Rewrite)` já é aplicada automaticamente pelo arquivo `_redirects` e pelo `render.yaml`, garantindo que atualizar a página (F5) ou acessar rotas diretas nunca resulte em erro 404.
+
+   > 💡 **Dica Rápida:** Você também pode usar a opção **New Blueprint Instance** no Render e selecionar o arquivo `render.yaml` para configurar tanto o Backend quanto o Frontend automaticamente!
 
 ---
 

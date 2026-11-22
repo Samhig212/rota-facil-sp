@@ -25,13 +25,16 @@ import { AdminTokenDialog } from "@/components/AdminTokenDialog";
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
+    let user = null;
     try {
-      const user = await api.auth.me();
-      if (!user) throw redirect({ to: "/auth" });
-      return { user };
+      user = await api.auth.me();
     } catch {
+      user = null;
+    }
+    if (!user) {
       throw redirect({ to: "/auth" });
     }
+    return { user };
   },
   component: Shell,
 });

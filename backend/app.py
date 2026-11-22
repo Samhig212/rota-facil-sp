@@ -3,7 +3,7 @@ import uuid
 import datetime
 import logging
 from functools import wraps
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 import werkzeug.security
@@ -380,15 +380,6 @@ def check_write_permission(user):
 # ==============================================================================
 # ROTAS DA API
 # ==============================================================================
-
-@app.route("/", methods=["GET"])
-def root():
-    return jsonify({
-        "status": "success",
-        "message": "API RotaFácil SP online!",
-        "service": "RotaFacil SP API",
-        "version": "1.0.0"
-    })
 
 @app.route("/api/health", methods=["GET"])
 def health():
@@ -835,6 +826,40 @@ def close_route(r_id):
 
     updated = execute_query("SELECT * FROM routes WHERE id = %s", (r_id,), fetch="one")
     return jsonify(updated)
+
+# ==============================================================================
+# SERVIÇO DE FRONT-END SPA (PREVENÇÃO DE ERRO 404 EM DEPLOY E REFRESH)
+# ==============================================================================
+DIST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist"))
+if not os.path.exists(DIST_DIR):
+    DIST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "dist"))
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_spa_or_fallback(path):
+    # Endpoints de API não mapeados retornam 404 JSON
+    if path.startswith("api/"):
+        return jsonify({"error": "not_found", "message": f"Endpoint /{path} não encontrado na API"}), 404
+
+    # Se a pasta dist existir (build do frontend), serve arquivos estáticos ou index.html
+    if os.path.exists(DIST_DIR):
+        file_path = os.path.join(DIST_DIR, path)
+        if path and os.path.exists(file_path) and os.path.isfile(file_path):
+            return send_from_directory(DIST_DIR, path)
+        index_path = os.path.join(DIST_DIR, "index.html")
+        if os.path.exists(index_path):
+            return send_from_directory(DIST_DIR, "index.html")
+
+    # Se dist não existir e for a raiz, retorna o status da API
+    if not path:
+        return jsonify({
+            "status": "success",
+            "message": "API RotaFácil SP online!",
+            "service": "RotaFacil SP API",
+            "version": "1.0.0"
+        })
+
+    return jsonify({"error": "not_found", "message": "Página não encontrada"}), 404
 
 # ==============================================================================
 # INICIALIZAÇÃO DO SERVIDOR COM SUPORTE A PORTA DINÂMICA

@@ -64,9 +64,18 @@ function DespachoPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
 
-  const busyVehicles = new Set(routes.filter((r) => r.status === "aberta").map((r) => r.vehicle_id));
-  const busyDrivers = new Set(routes.filter((r) => r.status === "aberta").map((r) => r.driver_id));
-  const pendentes = invoices.filter((i) => i.status === "pendente");
+  const busyVehicles = useMemo(
+    () => new Set(routes.filter((r) => r.status === "aberta").map((r) => r.vehicle_id)),
+    [routes],
+  );
+  const busyDrivers = useMemo(
+    () => new Set(routes.filter((r) => r.status === "aberta").map((r) => r.driver_id)),
+    [routes],
+  );
+  const pendentes = useMemo(
+    () => invoices.filter((i) => i.status === "pendente"),
+    [invoices],
+  );
 
   const [vehicleId, setVehicleId] = useState("");
   const [driverId, setDriverId] = useState("");

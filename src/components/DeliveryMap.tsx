@@ -31,11 +31,15 @@ export default function DeliveryMap({
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
   const markers = useRef<Record<string, L.Marker>>({});
+  const prevFingerprint = useRef<string>("");
+  const prevBoundsKey = useRef<string>("");
 
   useEffect(() => {
     if (!el.current) return;
     if (map.current) {
-      map.current.remove();
+      try {
+        map.current.remove();
+      } catch {}
       map.current = null;
     }
 
@@ -50,9 +54,13 @@ export default function DeliveryMap({
     layer.current = g;
 
     return () => {
-      m.remove();
+      try {
+        m.remove();
+      } catch {}
       map.current = null;
       layer.current = null;
+      prevFingerprint.current = "";
+      prevBoundsKey.current = "";
     };
   }, []);
 
@@ -60,6 +68,19 @@ export default function DeliveryMap({
     const m = map.current;
     const g = layer.current;
     if (!m || !g) return;
+
+    // Impede renderização desnecessária e loops de re-render caso os dados das paradas não tenham mudado
+    const fingerprint = `${stops
+      .map(
+        (s) =>
+          `${s.id}-${s.lat}-${s.lng}-${s.label}-${s.status}-${s.proximityStatus || ""}-${s.isReference ? 1 : 0}`,
+      )
+      .join(";")}|${showRoute}`;
+
+    if (fingerprint === prevFingerprint.current) {
+      return;
+    }
+    prevFingerprint.current = fingerprint;
 
     g.clearLayers();
     markers.current = {};
@@ -85,7 +106,7 @@ export default function DeliveryMap({
       .addTo(g);
 
     const validStops = stops.filter(
-      (s) => s.lat != null && s.lng != null && !Number.isNaN(Number(s.lat)) && !Number.isNaN(Number(s.lng))
+      (s) => s.lat != null && s.lng != null && !Number.isNaN(Number(s.lat)) && !Number.isNaN(Number(s.lng)),
     );
 
     let prevLoc = { lat: DEPOT.lat, lng: DEPOT.lng };
@@ -149,7 +170,6 @@ export default function DeliveryMap({
         ...validStops.map((s) => [Number(s.lat), Number(s.lng)] as [number, number]),
       ];
 
-      // Linha de reflexo / halo externo
       L.polyline(latlngs, {
         color: "#60a5fa",
         weight: 7,
@@ -158,7 +178,6 @@ export default function DeliveryMap({
         lineJoin: "round",
       }).addTo(g);
 
-      // Linha principal de trajeto
       L.polyline(latlngs, {
         color: "#2563eb",
         weight: 3.5,
@@ -168,12 +187,17 @@ export default function DeliveryMap({
       }).addTo(g);
     }
 
+    // Só ajusta bounds se as coordenadas das paradas mudarem, sem animação contínua
     if (validStops.length) {
-      const bounds = L.latLngBounds([
-        [DEPOT.lat, DEPOT.lng],
-        ...validStops.map((s) => [Number(s.lat), Number(s.lng)] as [number, number]),
-      ]);
-      m.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+      const boundsKey = validStops.map((s) => `${s.lat},${s.lng}`).join(";");
+      if (boundsKey !== prevBoundsKey.current) {
+        prevBoundsKey.current = boundsKey;
+        const bounds = L.latLngBounds([
+          [DEPOT.lat, DEPOT.lng],
+          ...validStops.map((s) => [Number(s.lat), Number(s.lng)] as [number, number]),
+        ]);
+        m.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: false });
+      }
     }
   }, [stops, showRoute, onSelect]);
 
