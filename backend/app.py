@@ -22,22 +22,27 @@ logger = logging.getLogger("RotaFacilAPI")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "ADMIN123")
 
 # ==============================================================================
-# CONFIGURAÇÃO DE BANCO DE DADOS (MySQL com Fallback Seguro para SQLite)
+# CONFIGURAÇÃO DE BANCO DE DADOS (PostgreSQL / MySQL com Fallback para SQLite)
 # ==============================================================================
-MYSQL_URL = os.environ.get("MYSQL_URL") or os.environ.get("DATABASE_URL")
+RAW_DB_URL = os.environ.get("DATABASE_URL") or os.environ.get("MYSQL_URL")
 MYSQL_HOST = os.environ.get("MYSQL_HOST")
 MYSQL_USER = os.environ.get("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "")
 MYSQL_DB = os.environ.get("MYSQL_DB", "rota_facil_sp")
 MYSQL_PORT = int(os.environ.get("MYSQL_PORT", 3306))
 
+USE_POSTGRES = False
+POSTGRES_URL = ""
 USE_MYSQL = False
 mysql_conn_params = {}
 
-if MYSQL_URL:
+if RAW_DB_URL and (RAW_DB_URL.startswith("postgres://") or RAW_DB_URL.startswith("postgresql://")):
+    USE_POSTGRES = True
+    POSTGRES_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
+elif RAW_DB_URL:
     try:
         from urllib.parse import urlparse
-        parsed = urlparse(MYSQL_URL)
+        parsed = urlparse(RAW_DB_URL)
         mysql_conn_params = {
             "host": parsed.hostname or "localhost",
             "port": parsed.port or 3306,
@@ -49,7 +54,7 @@ if MYSQL_URL:
     except Exception as e:
         logger.warning(f"Falha ao interpretar MYSQL_URL: {e}")
 
-if not USE_MYSQL and MYSQL_HOST:
+if not USE_POSTGRES and not USE_MYSQL and MYSQL_HOST:
     mysql_conn_params = {
         "host": MYSQL_HOST,
         "port": MYSQL_PORT,
@@ -61,9 +66,21 @@ if not USE_MYSQL and MYSQL_HOST:
 
 def get_db_connection():
     """
-    Retorna uma conexão ativa com MySQL se configurado,
-    ou SQLite local (backend/rota_facil.db) como fallback resiliente.
+    Retorna uma conexão ativa com:
+    1. PostgreSQL (Render, Railway, Supabase) se DATABASE_URL começar com postgres://
+    2. MySQL se configurado via MYSQL_URL ou MYSQL_HOST
+    3. SQLite local (backend/rota_facil.db) como fallback resiliente.
     """
+    if USE_POSTGRES:
+        try:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(POSTGRES_URL, cursor_factory=RealDictCursor)
+            conn.autocommit = True
+            return conn, "postgres"
+        except Exception as e:
+            logger.warning(f"Não foi possível conectar ao PostgreSQL ({e}). Tentando fallback.")
+
     if USE_MYSQL:
         try:
             import pymysql
@@ -104,6 +121,16 @@ def execute_query(query, params=None, fetch="all"):
             else:
                 conn.commit()
                 return cursor.rowcount
+        elif engine == "postgres":
+            cursor.execute(query, params or ())
+            if fetch == "all":
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+            elif fetch == "one":
+                row = cursor.fetchone()
+                return dict(row) if row else None
+            else:
+                return cursor.rowcount
         else:
             cursor.execute(query, params or ())
             if fetch == "all":
@@ -124,6 +151,14 @@ def ensure_column(cursor, engine, table, column, definition):
             if column not in cols:
                 logger.info(f"Adicionando coluna {column} na tabela {table} (SQLite)...")
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        elif engine == "postgres":
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = %s AND column_name = %s
+            """, (table, column))
+            if not cursor.fetchone():
+                logger.info(f"Adicionando coluna {column} na tabela {table} (PostgreSQL)...")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         else:
             cursor.execute("""
                 SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -140,7 +175,9 @@ def init_db():
     conn, engine = get_db_connection()
     try:
         cursor = conn.cursor()
-        text_type = "TEXT" if engine == "sqlite" else "LONGTEXT"
+        text_type = "TEXT" if engine in ["sqlite", "postgres"] else "LONGTEXT"
+        lat_type = "DOUBLE PRECISION" if engine in ["postgres", "mysql"] else "DOUBLE"
+        bool_default = "TRUE" if engine == "postgres" else "1"
         timestamp_default = "CURRENT_TIMESTAMP"
 
         cursor.execute(f"""
@@ -160,7 +197,7 @@ def init_db():
             placa VARCHAR(10) UNIQUE NOT NULL,
             modelo VARCHAR(100) DEFAULT '',
             km_atual INT DEFAULT 0,
-            ativo BOOLEAN DEFAULT 1,
+            ativo BOOLEAN DEFAULT {bool_default},
             user_id VARCHAR(36) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT {timestamp_default}
         )
@@ -176,7 +213,7 @@ def init_db():
             cnh_foto {text_type},
             cnh_categoria VARCHAR(10) DEFAULT 'B',
             cnh_validade VARCHAR(30) DEFAULT '',
-            ativo BOOLEAN DEFAULT 1,
+            ativo BOOLEAN DEFAULT {bool_default},
             user_id VARCHAR(36) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT {timestamp_default}
         )
@@ -211,8 +248,8 @@ def init_db():
             cidade VARCHAR(100) DEFAULT 'São Paulo',
             valor DECIMAL(12,2) DEFAULT 0.00,
             volumes INT DEFAULT 1,
-            lat DOUBLE DEFAULT NULL,
-            lng DOUBLE DEFAULT NULL,
+            lat {lat_type} DEFAULT NULL,
+            lng {lat_type} DEFAULT NULL,
             status VARCHAR(30) DEFAULT 'pendente',
             motivo_devolucao TEXT,
             route_id VARCHAR(36) DEFAULT NULL,
